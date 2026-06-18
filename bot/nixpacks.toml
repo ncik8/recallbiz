@@ -1,7 +1,14 @@
 # Force Python 3.12 — python-telegram-bot 21.3 has a __slots__ incompatibility with Python 3.13
 # (AttributeError: 'Application' object has no attribute '_Application__stop_running_marker')
+#
+# Nixpacks (Railpack) uses mise for Python install. mise verifies GitHub artifact attestations
+# by default — disable that because some Python versions lack attestations.
 [phases.setup]
 nixPkgs = ["python312"]
+
+[variables]
+MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
+MISE_PYTHON_DEFAULT_PATCH = "false"
 
 [phases.install]
 cmds = ["pip install --upgrade pip"]
