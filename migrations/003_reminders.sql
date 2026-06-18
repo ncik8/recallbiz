@@ -90,12 +90,14 @@ DROP POLICY IF EXISTS "Users delete own reminders" ON reminders;
 -- Permissive policy: deny all by default, service_role bypasses.
 -- When you add a user-facing REST endpoint, write a policy that casts
 -- the JWT claim to bigint: ((current_setting('request.jwt.claims', true)::json->>'telegram_user_id')::bigint)
+DROP POLICY IF EXISTS "Service role manages all reminders" ON reminders;
 CREATE POLICY "Service role manages all reminders"
     ON reminders FOR ALL
     TO service_role
     USING (true)
     WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Anon read only own reminders" ON reminders;
 CREATE POLICY "Anon read only own reminders"
     ON reminders FOR SELECT
     TO anon
