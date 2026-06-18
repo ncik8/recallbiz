@@ -409,3 +409,269 @@ def get_filtered_contacts(user_id: str, filter_type: str, filter_value: str) -> 
 if __name__ == "__main__":
     init_db()
     print("Supabase DB layer OK")
+
+
+# ============================================================================
+# Reminders
+# ============================================================================
+
+def get_user_timezone(user_id: str) -> Optional[str]:
+    """Return the user's IANA timezone string, or None if not set."""
+    try:
+        client = get_client()
+        res = (
+            client.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0].get("timezone")
+        return None
+    except Exception as e:
+        log.warning("get_user_timezone failed: %s", e)
+        return None
+
+
+def set_user_timezone(user_id: str, timezone: str) -> bool:
+    """Persist the user's IANA timezone (e.g. 'Asia/Hong_Kong')."""
+    try:
+        client = get_client()
+        client.table("users").update({"timezone": timezone}).eq("id", user_id).execute()
+        return True
+    except Exception as e:
+        log.warning("set_user_timezone failed: %s", e)
+        return False
+
+
+def set_reminder(
+    user_id: str,
+    message: str,
+    due_at_iso: str,
+    timezone: str,
+    contact_id: Optional[str] = None,
+    recurrence: str = "none",
+    recurrence_end: Optional[str] = None,
+    parent_id: Optional[str] = None,
+) -> Optional[str]:
+    """Create a reminder. Returns the reminder UUID or None on failure.
+
+    Args:
+        due_at_iso: ISO8601 with offset, e.g. '2026-06-24T10:00:00+08:00'
+        recurrence: 'none' | 'daily' | 'weekly' | 'monthly'
+        recurrence_end: 'YYYY-MM-DD' or None for no end
+        parent_id: for child firings of a recurring series
+    """
+    try:
+        client = get_client()
+        payload = {
+            "user_id": user_id,
+            "contact_id": contact_id,
+            "message": message,
+            "due_at": due_at_iso,
+            "timezone": timezone,
+            "status": "pending",
+            "recurrence": recurrence,
+        }
+        if recurrence_end:
+            payload["recurrence_end"] = recurrence_end
+        if parent_id:
+            payload["parent_id"] = parent_id
+        res = client.table("reminders").insert(payload).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0]["id"]
+        return None
+    except Exception as e:
+        log.warning("set_reminder failed: %s", e)
+        return None
+
+
+def list_reminders(user_id: str, status: str = "pending", limit: int = 20) -> list:
+    """List reminders for a user, optionally filtered by status."""
+    try:
+        client = get_client()
+        q = (
+            client.table("reminders")
+            .select("*, contact:contacts(id, name, handle, company)")
+            .eq("user_id", user_id)
+        )
+        if status != "all":
+            q = q.eq("status", status)
+        res = (
+            q.order("due_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        log.warning("list_reminders failed: %s", e)
+        return []
+
+
+def get_due_reminders(limit: int = 100) -> list:
+    """Return all pending reminders whose due_at <= now. Called by scheduler."""
+    try:
+        client = get_client()
+        # Use RPC or raw filter — Supabase Python supports lt on timestamps
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res = (
+            client.table("reminders")
+            .select("*, user:users(id, telegram_user_id, timezone), "
+                    "contact:contacts(id, name, handle, company, email)")
+            .eq("status", "pending")
+            .lte("due_at", now_iso)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        log.warning("get_due_reminders failed: %s", e)
+        return []
+
+
+def mark_reminder_fired(reminder_id: str) -> Optional[str]:
+    """Mark a one-shot reminder as done. For recurring, return the new
+    due_at ISO string for the next occurrence (or None if series ended)."""
+    try:
+        client = get_client()
+        # Fetch the reminder
+        res = (
+            client.table("reminders")
+            .select("*")
+            .eq("id", reminder_id)
+            .limit(1)
+            .execute()
+        )
+        if not res.data or len(res.data) == 0:
+            return None
+        r = res.data[0]
+
+        if r.get("recurrence", "none") == "none":
+            client.table("reminders").update({
+                "status": "done",
+                "fired_at": "now()",
+                "last_fired_at": "now()",
+            }).eq("id", reminder_id).execute()
+            return None
+
+        # Recurring: compute next occurrence
+        from datetime import datetime, timedelta
+        from dateutil.relativedelta import relativedelta
+        current_due = datetime.fromisoformat(r["due_at"].replace("Z", "+00:00"))
+
+        if r["recurrence"] == "daily":
+            next_due = current_due + timedelta(days=1)
+        elif r["recurrence"] == "weekly":
+            next_due = current_due + timedelta(weeks=1)
+        elif r["recurrence"] == "monthly":
+            next_due = current_due + relativedelta(months=1)
+        else:
+            next_due = current_due
+
+        # Check recurrence_end
+        if r.get("recurrence_end"):
+            end_date = datetime.fromisoformat(r["recurrence_end"]).date()
+            if next_due.date() > end_date:
+                client.table("reminders").update({
+                    "status": "done",
+                    "fired_at": "now()",
+                    "last_fired_at": "now()",
+                }).eq("id", reminder_id).execute()
+                return None
+
+        # Advance due_at to next occurrence
+        client.table("reminders").update({
+            "due_at": next_due.isoformat(),
+            "fired_at": "now()",
+            "last_fired_at": "now()",
+        }).eq("id", reminder_id).execute()
+        return next_due.isoformat()
+
+    except Exception as e:
+        log.warning("mark_reminder_fired failed: %s", e)
+        return None
+
+
+def cancel_reminder(reminder_id: str, user_id: str) -> bool:
+    """Cancel a reminder (mark status=cancelled). User-scoped."""
+    try:
+        client = get_client()
+        res = (
+            client.table("reminders")
+            .update({"status": "cancelled"})
+            .eq("id", reminder_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception as e:
+        log.warning("cancel_reminder failed: %s", e)
+        return False
+
+
+def snooze_reminder(reminder_id: str, user_id: str, minutes: int) -> bool:
+    """Push a reminder's due_at forward by N minutes."""
+    try:
+        client = get_client()
+        # Fetch current due_at
+        res = (
+            client.table("reminders")
+            .select("due_at")
+            .eq("id", reminder_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not res.data or len(res.data) == 0:
+            return False
+        from datetime import datetime, timedelta
+        current = datetime.fromisoformat(res.data[0]["due_at"].replace("Z", "+00:00"))
+        new_due = current + timedelta(minutes=minutes)
+        client.table("reminders").update({
+            "due_at": new_due.isoformat(),
+            "status": "pending",
+        }).eq("id", reminder_id).eq("user_id", user_id).execute()
+        return True
+    except Exception as e:
+        log.warning("snooze_reminder failed: %s", e)
+        return False
+
+
+def find_reminders_by_keyword(user_id: str, keyword: str) -> list:
+    """Find pending reminders whose message contains the keyword (for 'cancel the Vitalik one')."""
+    try:
+        client = get_client()
+        res = (
+            client.table("reminders")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .ilike("message", f"%{keyword}%")
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        log.warning("find_reminders_by_keyword failed: %s", e)
+        return []
+
+
+def find_contact_by_partial_name(user_id: str, name: str) -> Optional[dict]:
+    """Find a single contact matching a partial name (for reminder contact linking)."""
+    try:
+        client = get_client()
+        res = (
+            client.table("contacts")
+            .select("*")
+            .eq("user_id", user_id)
+            .ilike("name", f"%{name}%")
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0]
+        return None
+    except Exception as e:
+        log.warning("find_contact_by_partial_name failed: %s", e)
+        return None

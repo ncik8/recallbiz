@@ -275,6 +275,80 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_reminder",
+            "description": (
+                "Set a reminder for the user. Use when user says 'remind me...', "
+                "'set a reminder...', 'follow up with X on Y', 'ping me in 2 hours', etc. "
+                "Parse natural-language dates into ISO8601 with the user's timezone offset. "
+                "If timezone is unknown, RETURN AN ERROR message asking the user (the tool will "
+                "surface a follow-up). "
+                "For 'every Monday at 9am' / 'daily' / 'weekly' / 'monthly' → set recurrence. "
+                "For 'until June 30' → set recurrence_end as YYYY-MM-DD."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "What to remind about"},
+                    "due_at": {"type": "string", "description": "ISO8601 with offset, e.g. 2026-06-24T10:00:00+08:00"},
+                    "timezone": {"type": "string", "description": "IANA tz like Asia/Hong_Kong; omit to use user's saved tz"},
+                    "contact_name": {"type": "string", "description": "Contact to link (optional). Partial name OK."},
+                    "recurrence": {"type": "string", "enum": ["none", "daily", "weekly", "monthly"], "default": "none"},
+                    "recurrence_end": {"type": "string", "description": "YYYY-MM-DD stop date (optional)"},
+                },
+                "required": ["message", "due_at"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_reminders",
+            "description": "Show the user's pending reminders (or all if status='all').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["pending", "all", "done", "cancelled"], "default": "pending"},
+                    "limit": {"type": "integer", "default": 20},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_reminder",
+            "description": (
+                "Cancel a reminder. User can pass either the reminder id OR a keyword "
+                "matching the message (e.g. 'Vitalik', 'follow up'). If keyword matches "
+                "multiple, ask which one."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "string", "description": "UUID (preferred if known)"},
+                    "keyword": {"type": "string", "description": "Substring of message to match"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "snooze_reminder",
+            "description": "Push a reminder's due time forward by N minutes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "Substring of message to identify which reminder"},
+                    "minutes": {"type": "integer", "description": "How many minutes to delay"},
+                },
+                "required": ["keyword", "minutes"],
+            },
+        },
+    },
 ]
 
 
@@ -302,10 +376,23 @@ Tool routing rules:
 - "list my contacts", "show contacts", "who do I know" → list_contacts
 - "find X", "where's X", "do I know X" → find_contact(query=X)
 - "add a note to X: ..." or "note for X: ..." → add_note(name=X, note=...)
-- "save X from Y", "met Y from Z", "add contact X" → add_contact with parsed fields (name required; company/title/email/phone/handle optional)
+- "save X from Y", "met Y from Z", "add contact X" → add_contact with parsed fields (name required; company/title/email/phone/handle/website optional)
 - "draft a message to X about Y" → find_contact first, then compose a short message using the contact's handle/name
 - "I'm at TOKEN2049", "starting trip X" → start_trip(name=X)
 - "stop trip", "ending trip" → stop_trip
+- "remind me...", "set a reminder...", "follow up with X...", "ping me in 2 hours", "remind me every Monday..." → set_reminder
+- "what reminders do I have", "show reminders", "/reminders" → list_reminders
+- "cancel reminder X", "cancel the Vitalik reminder" → cancel_reminder(keyword or id)
+- "snooze", "remind me in 30 min instead" → snooze_reminder
+
+Reminder rules:
+- Parse natural-language times into ISO8601 with offset using the user's timezone. Examples: "tomorrow at 10am" → compute next-day 10:00 in user's tz; "next Tuesday 3pm" → compute that Tuesday 15:00; "in 2 hours" → now+2h.
+- ALWAYS include the timezone offset in due_at. Example: 2026-06-24T10:00:00+08:00 for HKT.
+- For "every Monday" / "daily" / "weekly" / "monthly" / "every morning" → set recurrence='daily'/'weekly'/'monthly'. Default is one-shot (recurrence='none').
+- For "until June 30" or "for 2 weeks" → set recurrence_end as YYYY-MM-DD.
+- If contact_name is given ("remind me to call Vitalik"), pass contact_name='Vitalik' so the reminder links to the contact and the fired message can pre-fill a draft.
+- ALWAYS confirm before saving: "Reminder set: '<message>' on Tue 2026-06-24 10:00 HKT (recurring weekly). You'll get a ping then." Use plain text, no markdown.
+- If timezone_unknown error comes back, tell the user the follow_up message verbatim and DON'T save the reminder.
 
 Display rules (apply to every list/find response):
 - For each contact, show: name · @handle · company · notes (truncate to 80 chars)
@@ -551,6 +638,119 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
             "success": True,
             "_focus": {"id": cid, "name": cname, "company": company},
         }
+
+    if name == "set_reminder":
+        from db import (
+            set_reminder as db_set_reminder,
+            get_user_timezone, set_user_timezone,
+            find_contact_by_partial_name,
+        )
+        msg = (args.get("message") or "").strip()
+        due_at = (args.get("due_at") or "").strip()
+        tz = (args.get("timezone") or "").strip() or None
+        contact_name = (args.get("contact_name") or "").strip() or None
+        recurrence = args.get("recurrence") or "none"
+        recurrence_end = args.get("recurrence_end") or None
+
+        if not msg:
+            return {"error": "message is required"}
+        if not due_at:
+            return {"error": "due_at is required (ISO8601 with offset)"}
+
+        # Resolve timezone
+        if not tz:
+            tz = get_user_timezone(user_id)
+        if not tz:
+            return {
+                "error": "timezone_unknown",
+                "follow_up": (
+                    "What timezone are you in? Reply with something like "
+                    "'Asia/Hong_Kong', 'America/New_York', or 'UTC'. "
+                    "I'll remember it for next time."
+                ),
+            }
+
+        # Save timezone if M3 provided it for the first time
+        if tz and (args.get("timezone") or "").strip():
+            set_user_timezone(user_id, tz)
+
+        # Resolve contact
+        contact_id = None
+        if contact_name:
+            c = find_contact_by_partial_name(user_id, contact_name)
+            if c:
+                contact_id = c.get("id")
+
+        reminder_id = db_set_reminder(
+            user_id=user_id,
+            message=msg,
+            due_at_iso=due_at,
+            timezone=tz,
+            contact_id=contact_id,
+            recurrence=recurrence,
+            recurrence_end=recurrence_end,
+        )
+        if not reminder_id:
+            return {"error": "DB insert failed"}
+        return {
+            "success": True,
+            "reminder_id": reminder_id,
+            "message": msg,
+            "due_at": due_at,
+            "timezone": tz,
+            "recurrence": recurrence,
+            "contact_id": contact_id,
+            "contact_name": contact_name,
+        }
+
+    if name == "list_reminders":
+        from db import list_reminders as db_list_reminders
+        status = args.get("status", "pending")
+        limit = int(args.get("limit", 20))
+        reminders = db_list_reminders(user_id, status=status, limit=limit)
+        return {"count": len(reminders), "reminders": reminders}
+
+    if name == "cancel_reminder":
+        from db import cancel_reminder as db_cancel, find_reminders_by_keyword
+        rid = (args.get("reminder_id") or "").strip() or None
+        kw = (args.get("keyword") or "").strip() or None
+        if not rid and not kw:
+            return {"error": "need reminder_id or keyword"}
+        if rid:
+            ok = db_cancel(rid, user_id)
+            return {"success": ok, "cancelled_id": rid if ok else None}
+        matches = find_reminders_by_keyword(user_id, kw)
+        if len(matches) == 0:
+            return {"error": f"No pending reminder matching '{kw}'"}
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "candidates": [
+                    {"id": m["id"], "message": m["message"], "due_at": m["due_at"]}
+                    for m in matches
+                ],
+            }
+        ok = db_cancel(matches[0]["id"], user_id)
+        return {"success": ok, "cancelled_id": matches[0]["id"], "message": matches[0]["message"]}
+
+    if name == "snooze_reminder":
+        from db import snooze_reminder as db_snooze, find_reminders_by_keyword
+        kw = (args.get("keyword") or "").strip()
+        minutes = int(args.get("minutes", 0))
+        if not kw or minutes <= 0:
+            return {"error": "need keyword and minutes>0"}
+        matches = find_reminders_by_keyword(user_id, kw)
+        if len(matches) == 0:
+            return {"error": f"No pending reminder matching '{kw}'"}
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "candidates": [
+                    {"id": m["id"], "message": m["message"]} for m in matches
+                ],
+            }
+        ok = db_snooze(matches[0]["id"], user_id, minutes)
+        return {"success": ok, "reminder_id": matches[0]["id"], "new_due_in_minutes": minutes}
 
     return {"error": f"Unknown tool: {name}"}
 

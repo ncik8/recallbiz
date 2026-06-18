@@ -646,7 +646,7 @@ async def _save_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(application: Application) -> None:
-    """Register the bot's command menu so it appears when user types /."""
+    """Register the bot's command menu + start reminder scheduler."""
     commands = [
         BotCommand("start", "Welcome + onboarding"),
         BotCommand("save", "Add a new contact (name, handle, company, title, notes)"),
@@ -654,11 +654,115 @@ async def post_init(application: Application) -> None:
         BotCommand("find", "Search contacts by name, company, or notes"),
         BotCommand("trip", "Start or end a trip to auto-tag new saves"),
         BotCommand("send", "Generate deep links to message a filtered group"),
+        BotCommand("reminders", "Show your pending reminders"),
         BotCommand("help", "Show all commands and tips"),
         BotCommand("cancel", "Cancel the current operation"),
     ]
     await application.bot.set_my_commands(commands)
     log.info(f"Registered {len(commands)} commands in bot menu")
+
+    # Start the reminder scheduler (60s loop)
+    if application.job_queue is not None:
+        application.job_queue.run_repeating(
+            _reminder_tick,
+            interval=60,
+            first=10,
+            name="reminder_scheduler",
+        )
+        log.info("Reminder scheduler started (60s interval)")
+    else:
+        log.warning("JobQueue not available; reminders will NOT auto-fire")
+
+
+async def _reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Run every 60s. Find due reminders, send Telegram messages, mark fired."""
+    from db import get_due_reminders, mark_reminder_fired, list_reminders
+
+    try:
+        due = get_due_reminders(limit=100)
+    except Exception as e:
+        log.exception("get_due_reminders failed")
+        return
+
+    if not due:
+        return
+
+    for r in due:
+        try:
+            user = r.get("user") or {}
+            contact = r.get("contact") or {}
+            telegram_uid = user.get("telegram_user_id")
+            if not telegram_uid:
+                log.warning("reminder %s has no telegram_user_id, skipping", r.get("id"))
+                continue
+
+            # Build the message
+            recur_label = ""
+            if r.get("recurrence") and r["recurrence"] != "none":
+                recur_label = f"\nRecurring: {r['recurrence']}"
+                if r.get("recurrence_end"):
+                    recur_label += f" until {r['recurrence_end']}"
+
+            contact_line = ""
+            if contact:
+                handle = contact.get("handle")
+                company = contact.get("company")
+                bits = [contact.get("name") or "contact"]
+                if company:
+                    bits.append(company)
+                if handle:
+                    bits.append(f"@{handle}")
+                contact_line = f"\nContact: {' · '.join(bits)}"
+
+            draft_line = ""
+            if contact and contact.get("handle"):
+                draft_line = (
+                    f"\nDraft message: \"Hi {contact.get('name', '').split()[0] if contact.get('name') else 'there'}, "
+                    f"following up — {r['message']}\""
+                )
+
+            text = (
+                f"Reminder: {r['message']}"
+                f"{contact_line}"
+                f"{recur_label}"
+                f"{draft_line}"
+            )
+
+            await context.bot.send_message(chat_id=telegram_uid, text=text)
+
+            # Mark fired; for recurring this advances due_at to next occurrence
+            next_due = mark_reminder_fired(r["id"])
+            log.info(
+                "Fired reminder %s for user %s (next_due=%s)",
+                r["id"], telegram_uid, next_due,
+            )
+        except Exception as e:
+            log.exception("Failed to fire reminder %s", r.get("id"))
+
+
+async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show user's pending + active recurring reminders."""
+    from db import list_reminders as db_list
+    user_id = context.user_data.get("user_id") or await _resolve_user_id(update, context)
+    pending = db_list(user_id, status="pending", limit=20)
+    if not pending:
+        await update.message.reply_text("No pending reminders.")
+        return
+    lines = ["Your pending reminders:"]
+    for r in pending:
+        # Parse due_at for friendly display
+        due = r["due_at"]
+        contact_name = ""
+        if r.get("contact"):
+            contact_name = f" (linked to {r['contact'].get('name')})"
+        recur = ""
+        if r.get("recurrence") and r["recurrence"] != "none":
+            recur = f" [{r['recurrence']}"
+            if r.get("recurrence_end"):
+                recur += f" until {r['recurrence_end']}"
+            recur += "]"
+        lines.append(f"\n- {r['message']}{contact_name}\n  Fires: {due}{recur}")
+    await update.message.reply_text("\n".join(lines))
 
 
 def main():
@@ -676,6 +780,7 @@ def main():
     app.add_handler(CommandHandler("find", find_cmd))
     app.add_handler(CommandHandler("trip", trip_cmd))
     app.add_handler(CommandHandler("send", send_cmd))
+    app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
 
     # Messages
