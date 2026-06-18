@@ -253,6 +253,28 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_contact",
+            "description": (
+                "Set the user's current focused contact for follow-up turns. "
+                "CALL THIS after any find_contact or list_contacts that returns a contact, "
+                "AND before answering when the user refers to a contact by name or pronoun. "
+                "Pass the contact's id and name. This lets the bot remember which contact "
+                "the user is discussing across turns ('his website', 'add a note to him')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact_id": {"type": "string", "description": "Contact UUID"},
+                    "name": {"type": "string", "description": "Contact display name"},
+                    "company": {"type": "string", "description": "Contact company (optional)"},
+                },
+                "required": ["contact_id", "name"],
+            },
+        },
+    },
 ]
 
 
@@ -273,6 +295,8 @@ How to behave:
 - BUT: if notes/company give clear context (e.g. user says "the Vitalik I met at TOKEN2049"), pick the matching contact without asking.
 - Example: 2 "Vitalik Buterins" exist. One has notes "met at TOKEN2049", the other has notes "test". "Find the Vitalik I met at TOKEN2049" → pick the one with that note.
 - IDENTITY: You are "RecallBiz AI". Never mention the underlying model, provider, API, tokens, or technical internals. If asked "what AI are you" or "what model", reply "I'm RecallBiz AI, your business network PA." Never expose token counts, latency, error codes, or JSON to the user. If a tool error happens, say "I had trouble with that" — not the raw exception.
+- CONTEXT MEMORY: The "Last discussed contact" field below tells you which contact the user is currently focused on (set by find_contact/list_contacts in this session). Use it. Pronouns like "his", "her", "their company", "their website", "add a note to him" → resolve to that contact. Don't ask "which one?" if Last discussed is set. Only ask if Last discussed is empty AND the query is ambiguous.
+- NO MARKDOWN: Plain text only. No **bold**, no *italic*, no backticks, no bullet lists with dashes. Telegram shows raw asterisks. Use CAPS for emphasis if needed.
 
 Tool routing rules:
 - "list my contacts", "show contacts", "who do I know" → list_contacts
@@ -293,7 +317,8 @@ Display rules (apply to every list/find response):
 User context (refreshed each turn):
 - User ID: {user_id}
 - Recent contacts: {recent_contacts}
-- Active trip: {active_trip}"""
+- Active trip: {active_trip}
+- Last discussed contact (this session): {last_contact}"""
 
 
 async def interpret_card_edit(current_card: dict, user_text: str) -> dict:
@@ -349,8 +374,12 @@ async def interpret_card_edit(current_card: dict, user_text: str) -> dict:
         return {}
 
 
-async def build_system_prompt(user_id: str) -> str:
-    """Build the system prompt with current user context."""
+async def build_system_prompt(user_id: str, last_contact: Optional[Dict[str, Any]] = None) -> str:
+    """Build the system prompt with current user context.
+
+    last_contact: optional dict with at least {"id", "name", "company"} — the contact
+    the user is currently focused on this session (set after find_contact/list_contacts).
+    """
     from db import list_recent, get_active_trip
 
     # These calls are sync but fast; use run_in_executor for safety
@@ -370,10 +399,19 @@ async def build_system_prompt(user_id: str) -> str:
 
     trip_str = trip.get("name") if trip else "(none)"
 
+    if last_contact:
+        lc_str = (
+            f"{last_contact.get('name')} ({last_contact.get('company') or 'no company'}) "
+            f"[id={last_contact.get('id')}]"
+        )
+    else:
+        lc_str = "(none — no contact focused this session yet)"
+
     return SYSTEM_PROMPT.format(
         user_id=user_id,
         recent_contacts=recent_str,
         active_trip=trip_str,
+        last_contact=lc_str,
     )
 
 
@@ -399,7 +437,12 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
         contacts = await loop.run_in_executor(
             None, lambda: search_contacts(user_id, q, limit=10)
         )
-        return {"count": len(contacts), "matches": contacts}
+        # Auto-focus: if exactly one match, persist it as last_contact
+        focus = None
+        if len(contacts) == 1:
+            c = contacts[0]
+            focus = {"id": c.get("id"), "name": c.get("name"), "company": c.get("company")}
+        return {"count": len(contacts), "matches": contacts, "_focus": focus}
 
     if name == "add_note":
         target_name = args.get("name", "").strip()
@@ -498,15 +541,27 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
         await loop.run_in_executor(None, lambda: deactivate_trip(user_id))
         return {"success": True}
 
+    if name == "focus_contact":
+        cid = args.get("contact_id", "").strip()
+        cname = args.get("name", "").strip()
+        company = args.get("company") or ""
+        if not cid or not cname:
+            return {"error": "missing contact_id or name"}
+        return {
+            "success": True,
+            "_focus": {"id": cid, "name": cname, "company": company},
+        }
+
     return {"error": f"Unknown tool: {name}"}
 
 
-async def handle_conversation(user_id: str, user_text: str) -> str:
+async def handle_conversation(user_id: str, user_text: str, last_contact: Optional[Dict[str, Any]] = None) -> str:
     """Process a natural-language user message via MiniMax + function calling.
 
-    Returns the assistant's final text response.
+    Returns dict: {"text": str, "focus": Optional[Dict]} so bot.py can persist
+    last_contact across turns.
     """
-    system = await build_system_prompt(user_id)
+    system = await build_system_prompt(user_id, last_contact=last_contact)
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_text},
@@ -517,15 +572,16 @@ async def handle_conversation(user_id: str, user_text: str) -> str:
         resp = await call_minimax(messages, tools=TOOLS)
     except Exception as e:
         log.exception("MiniMax conversation failed")
-        return "Sorry, I had trouble with that. Try again or rephrase."
+        return {"text": "Sorry, I had trouble with that. Try again or rephrase.", "focus": None}
 
     msg = resp["choices"][0]["message"]
 
     # If no tool calls, return the cleaned text
     if not msg.get("tool_calls"):
-        return _clean_response(msg.get("content")) or "I'm not sure how to help with that."
+        return {"text": _clean_response(msg.get("content")) or "I'm not sure how to help with that.", "focus": None}
 
-    # Execute tool calls
+    # Execute tool calls — track any focus_contact signals
+    focused = None
     messages.append(msg)
     for tc in msg["tool_calls"]:
         try:
@@ -533,6 +589,8 @@ async def handle_conversation(user_id: str, user_text: str) -> str:
         except Exception:
             args = {}
         result = await execute_tool(user_id, tc["function"]["name"], args)
+        if isinstance(result, dict) and result.get("_focus"):
+            focused = result["_focus"]
         messages.append({
             "role": "tool",
             "tool_call_id": tc["id"],
@@ -543,10 +601,10 @@ async def handle_conversation(user_id: str, user_text: str) -> str:
     try:
         resp2 = await call_minimax(messages, tools=TOOLS)
         text = _clean_response(resp2["choices"][0]["message"].get("content"))
-        return text or "Done."
+        return {"text": text or "Done.", "focus": focused}
     except Exception as e:
         log.exception("MiniMax follow-up call failed")
-        return "Done — but I couldn't write a summary. Try /list to see the result."
+        return {"text": "Done — but I couldn't write a summary. Try /list to see the result.", "focus": focused}
 
 
 import re

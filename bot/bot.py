@@ -382,12 +382,24 @@ async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     processing = await update.message.reply_text("🤔 Thinking...")
     try:
-        reply = await handle_conversation(user_id, user_text)
-        await processing.edit_text(reply or "Done.")
+        ud = context.user_data or {}
+        last_contact = ud.get("last_contact")
+        result = await handle_conversation(user_id, user_text, last_contact=last_contact)
+        # handle_conversation returns {"text": str, "focus": Optional[Dict]}
+        if isinstance(result, dict):
+            reply = result.get("text") or "Done."
+            focused = result.get("focus")
+            if focused:
+                ud["last_contact"] = focused
+                log.info("focused contact set: %s (%s)", focused.get("name"), focused.get("id"))
+        else:
+            # Backward compat if handle_conversation ever returns a bare string
+            reply = result or "Done."
+        await processing.edit_text(reply)
     except Exception as e:
         log.exception("handle_conversation failed")
         await processing.edit_text(
-            f"Sorry, I had trouble: {e}\n\nTry /list or /help for commands."
+            "Sorry, I had trouble with that. Try again or rephrase."
         )
 
 
