@@ -142,7 +142,11 @@ def save_contact(
 
 
 def search_contacts(user_id: str, query: str, limit: int = 10) -> list:
-    """Full-text search using search_vector (Postgres tsvector + GIN index)."""
+    """Full-text search using search_vector (Postgres tsvector + GIN index).
+
+    NOTE: supabase-py's text_search() returns a builder that does NOT chain
+    with .limit(). Use .range() instead. Bug confirmed June 2026.
+    """
     if not query.strip():
         return []
     client = get_client()
@@ -151,13 +155,14 @@ def search_contacts(user_id: str, query: str, limit: int = 10) -> list:
         .select("*")
         .eq("user_id", user_id)
         .text_search("search_vector", query, options={"type": "websearch"})
-        .limit(limit)
+        .range(0, limit - 1)
         .execute()
     )
     return res.data or []
 
 
 def list_recent(user_id: str, limit: int = 10) -> list:
+    # list_recent uses .order() which DOES chain with .limit(), so OK as-is
     client = get_client()
     res = (
         client.table("contacts")
@@ -180,11 +185,11 @@ def set_active_trip(user_id: str, event_name: str) -> str:
         .select("id")
         .eq("user_id", user_id)
         .eq("slug", slug)
-        .limit(1)
+        .maybe_single()
         .execute()
     )
-    if res.data and len(res.data) > 0:
-        event_id = res.data[0]["id"]
+    if res.data:
+        event_id = res.data["id"]
         client.table("events").update({"active": True}).eq("id", event_id).execute()
         return event_id
     res = client.table("events").insert({
@@ -197,6 +202,7 @@ def set_active_trip(user_id: str, event_name: str) -> str:
 
 
 def get_active_trip(user_id: str) -> Optional[dict]:
+    # Uses .limit(1) — same pattern as list_recent, but .eq() + .eq() + .limit() chains fine
     client = get_client()
     res = (
         client.table("events")
@@ -233,12 +239,12 @@ def get_filtered_contacts(user_id: str, filter_type: str, filter_value: str) -> 
             .select("id")
             .eq("user_id", user_id)
             .eq("name", filter_value)
-            .limit(1)
+            .maybe_single()
             .execute()
         )
-        if not tag_res.data or len(tag_res.data) == 0:
+        if not tag_res.data:
             return []
-        tag_id = tag_res.data[0]["id"] 
+        tag_id = tag_res.data["id"]
         res = (
             client.table("contact_tags")
             .select("contact_id, contacts!inner(id, name, handle, telegram_user_id, user_id)")
