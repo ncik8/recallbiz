@@ -405,6 +405,7 @@ User context (refreshed each turn):
 - User ID: {user_id}
 - Recent contacts: {recent_contacts}
 - Active trip: {active_trip}
+- User timezone: {user_timezone}
 - Last discussed contact (this session): {last_contact}"""
 
 
@@ -467,13 +468,14 @@ async def build_system_prompt(user_id: str, last_contact: Optional[Dict[str, Any
     last_contact: optional dict with at least {"id", "name", "company"} — the contact
     the user is currently focused on this session (set after find_contact/list_contacts).
     """
-    from db import list_recent, get_active_trip
+    from db import list_recent, get_active_trip, get_user_timezone
 
     # These calls are sync but fast; use run_in_executor for safety
     import asyncio
     loop = asyncio.get_event_loop()
     recent = await loop.run_in_executor(None, lambda: list_recent(user_id, limit=8))
     trip = await loop.run_in_executor(None, lambda: get_active_trip(user_id))
+    user_tz = await loop.run_in_executor(None, lambda: get_user_timezone(user_id))
 
     if recent:
         recent_str = "\n".join(
@@ -485,6 +487,7 @@ async def build_system_prompt(user_id: str, last_contact: Optional[Dict[str, Any
         recent_str = "(none yet)"
 
     trip_str = trip.get("name") if trip else "(none)"
+    tz_str = user_tz if user_tz else "(not set — ask once, then never ask again)"
 
     if last_contact:
         lc_str = (
@@ -498,6 +501,7 @@ async def build_system_prompt(user_id: str, last_contact: Optional[Dict[str, Any
         user_id=user_id,
         recent_contacts=recent_str,
         active_trip=trip_str,
+        user_timezone=tz_str,
         last_contact=lc_str,
     )
 
