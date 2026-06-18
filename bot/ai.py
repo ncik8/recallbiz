@@ -93,7 +93,7 @@ def _parse_json_from_text(text: str) -> Optional[dict]:
 async def extract_card_from_image(image_bytes: bytes) -> Optional[dict]:
     """Use MiniMax vision to extract structured business card fields.
 
-    Returns: {name, title, company, email, phone, handle} or None.
+    Returns: {name, title, company, email, phone, website, handle} or None.
     Drops fields that are None/empty.
     """
     b64 = base64.b64encode(image_bytes).decode("ascii")
@@ -103,8 +103,11 @@ async def extract_card_from_image(image_bytes: bytes) -> Optional[dict]:
             "content": (
                 "You extract structured data from business card images. "
                 "Return ONLY a JSON object with these keys: name, title, company, "
-                "email, phone, handle (Telegram @username without @). "
-                "Use null for fields you can't read. Don't guess."
+                "email, phone, website, handle (Telegram @username without @). "
+                "Use null for fields you can't read. Don't guess. "
+                "Strip prefixes like 'http://' or 'www.' from website URLs? "
+                "Keep them readable — your call. "
+                "If a field is genuinely missing from the card, omit it entirely."
             ),
         },
         {
@@ -200,10 +203,33 @@ TOOLS = [
                     "title": {"type": "string"},
                     "email": {"type": "string"},
                     "phone": {"type": "string"},
+                    "website": {"type": "string", "description": "Personal or company website URL"},
                     "handle": {"type": "string", "description": "Telegram handle without @"},
                     "notes": {"type": "string"},
                 },
                 "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_contact",
+            "description": (
+                "Update a single field on an existing contact. "
+                "Use when the user says 'change X's company to Y', 'update X's email', 'fix X's phone', etc."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Contact's name (or partial)"},
+                    "field": {
+                        "type": "string",
+                        "enum": ["name", "company", "title", "email", "phone", "website", "handle", "notes"],
+                    },
+                    "value": {"type": "string"},
+                },
+                "required": ["name", "field", "value"],
             },
         },
     },
@@ -356,6 +382,7 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
     from db import (
         list_recent, search_contacts, save_contact,
         set_active_trip, deactivate_trip, update_contact_notes,
+        update_contact_field, find_contacts_by_name,
     )
     loop = asyncio.get_event_loop()
 
@@ -392,7 +419,8 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
         existing = contact.get("notes") or ""
         new_notes = (existing + "\n" + note_text).strip() if existing else note_text
         ok = await loop.run_in_executor(
-            None, lambda: update_contact_notes(contact["id"], new_notes)
+            None,
+            lambda: update_contact_notes(contact["id"], user_id, new_note=new_notes, append=False),
         )
         if ok:
             return {
@@ -417,11 +445,46 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
                 title=clean.get("title"),
                 email=clean.get("email"),
                 phone=clean.get("phone"),
+                website=clean.get("website"),
                 notes=clean.get("notes"),
                 source="manual",
             ),
         )
         return {"success": True, "contact_id": contact_id, "name": clean["name"]}
+
+    if name == "update_contact":
+        target_name = args.get("name", "").strip()
+        field = args.get("field", "").strip()
+        value = args.get("value", "").strip()
+        if not target_name or not field or value is None:
+            return {"error": "missing name, field, or value"}
+        matches = await loop.run_in_executor(
+            None, lambda: find_contacts_by_name(user_id, target_name)
+        )
+        if not matches:
+            return {"error": f"No contact found matching '{target_name}'"}
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "candidates": [{"id": m["id"], "name": m["name"]} for m in matches],
+            }
+        contact = matches[0]
+        try:
+            ok = await loop.run_in_executor(
+                None,
+                lambda: update_contact_field(contact["id"], user_id, field, value),
+            )
+        except ValueError as e:
+            return {"error": str(e)}
+        if ok:
+            return {
+                "success": True,
+                "contact_id": contact["id"],
+                "name": contact["name"],
+                "field": field,
+                "value": value,
+            }
+        return {"error": "DB update failed"}
 
     if name == "start_trip":
         name_str = args.get("name", "").strip()

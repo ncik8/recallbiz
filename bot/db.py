@@ -105,6 +105,7 @@ def save_contact(
     title: str = None,
     email: str = None,
     phone: str = None,
+    website: str = None,
     notes: str = None,
     source: str = "manual",
     telegram_user_id: int = None,
@@ -119,6 +120,7 @@ def save_contact(
         "title": title,
         "email": email,
         "phone": phone,
+        "website": website,
         "notes": notes,
         "source": source,
         "telegram_user_id": telegram_user_id,
@@ -162,7 +164,7 @@ def search_contacts(user_id: str, query: str, limit: int = 10) -> list:
         return (res.data or [])[:limit]
     except Exception as e:
         log.warning("text_search failed, falling back to ilike: %s", e)
-        # Fallback: substring search across key fields
+        # Fallback: substring search across key fields (incl. website)
         res = (
             client.table("contacts")
             .select("*")
@@ -172,11 +174,68 @@ def search_contacts(user_id: str, query: str, limit: int = 10) -> list:
                 f"handle.ilike.%{query}%,"
                 f"company.ilike.%{query}%,"
                 f"title.ilike.%{query}%,"
-                f"notes.ilike.%{query}%"
+                f"notes.ilike.%{query}%,"
+                f"website.ilike.%{query}%,"
+                f"email.ilike.%{query}%"
             )
             .execute()
         )
         return (res.data or [])[:limit] or []
+
+
+def update_contact_notes(contact_id: str, user_id: str, new_note: str, append: bool = True) -> bool:
+    """Append or replace notes on a contact. Returns True if successful."""
+    client = get_client()
+    if append:
+        existing = (
+            client.table("contacts")
+            .select("notes")
+            .eq("id", contact_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        prev = (existing.data or {}).get("notes") or ""
+        new_notes = (prev + "\n" + new_note).strip() if prev else new_note
+    else:
+        new_notes = new_note
+    result = (
+        client.table("contacts")
+        .update({"notes": new_notes})
+        .eq("id", contact_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(result.data)
+
+
+def find_contacts_by_name(user_id: str, name: str) -> list:
+    """Get all contacts with a given name (case-insensitive partial). For disambiguation."""
+    client = get_client()
+    res = (
+        client.table("contacts")
+        .select("*")
+        .eq("user_id", user_id)
+        .ilike("name", f"%{name}%")
+        .execute()
+    )
+    return res.data or []
+
+
+def update_contact_field(contact_id: str, user_id: str, field: str, value: str) -> bool:
+    """Update a single field on a contact. Used by AI for edits like 'change his company to X'."""
+    client = get_client()
+    allowed = {"name", "handle", "company", "title", "email", "phone", "website", "notes"}
+    if field not in allowed:
+        raise ValueError(f"Field {field!r} not editable. Allowed: {sorted(allowed)}")
+    result = (
+        client.table("contacts")
+        .update({field: value})
+        .eq("id", contact_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(result.data)
 
 
 def list_recent(user_id: str, limit: int = 10) -> list:

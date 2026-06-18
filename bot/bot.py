@@ -17,6 +17,7 @@ from db import (
     init_db, log_usage, save_contact, search_contacts, list_recent,
     set_active_trip, get_active_trip, deactivate_trip, count_trip_contacts,
     get_or_create_user, get_filtered_contacts, update_contact_notes,
+    update_contact_field, find_contacts_by_name,
 )
 from ocr import try_decode_qr, parse_telegram_qr
 from ai import interpret_card_edit
@@ -419,6 +420,27 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text("🔍 No QR found. Reading the card with AI...")
         extracted = await extract_card_from_image(photo_bytes)
         if extracted and (extracted.get("name") or extracted.get("email") or extracted.get("phone")):
+            # If critical fields missing (name + company), ask the user to fill the gaps.
+            missing_critical = []
+            if not extracted.get("name"):
+                missing_critical.append("name")
+            if not extracted.get("company"):
+                missing_critical.append("company")
+            if missing_critical:
+                context.user_data["pending_card"] = extracted
+                lines = ["📇 Got partial info from the card:\n"]
+                for field, label in [
+                    ("name", "Name"), ("title", "Title"), ("company", "Company"),
+                    ("email", "Email"), ("phone", "Phone"), ("website", "Website"),
+                    ("handle", "Telegram"),
+                ]:
+                    if extracted.get(field):
+                        lines.append(f"{label}: {extracted[field]}")
+                lines.append(f"\nMissing: {', '.join(missing_critical)}")
+                lines.append("Reply with what you can fill in, e.g. 'name: John Smith'")
+                lines.append("Or /cancel to discard.")
+                await processing_msg.edit_text("\n".join(lines))
+                return
             await _show_ocr_preview(update, context, extracted, user_id)
         else:
             await processing_msg.edit_text(
@@ -480,6 +502,7 @@ async def _show_ocr_preview(update, context, extracted, user_id):
         ("company", "Company"),
         ("email", "Email"),
         ("phone", "Phone"),
+        ("website", "Website"),
         ("handle", "Telegram"),
     ]:
         if extracted.get(field):
@@ -512,6 +535,7 @@ async def _confirm_ocr_save(update, context):
                 title=extracted.get("title"),
                 email=extracted.get("email"),
                 phone=extracted.get("phone"),
+                website=extracted.get("website"),
                 source="paper_ocr",
             ),
         )
@@ -541,7 +565,7 @@ async def _confirm_ocr_save(update, context):
     if match:
         field, value = match.groups()
         field = field.strip().lower()
-        if field in ("name", "title", "company", "email", "phone", "handle", "telegram"):
+        if field in ("name", "title", "company", "email", "phone", "website", "handle", "telegram"):
             extracted[field if field != "telegram" else "handle"] = value.strip()
             context.user_data["pending_card"] = extracted
             await update.message.reply_text(
