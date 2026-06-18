@@ -244,6 +244,8 @@ How to behave:
 - If you must ask, ask ONE short question.
 - Never invent contact details (phone, email, handle). Only use what the user typed or what the DB returns.
 - If a name is ambiguous (multiple matches), say so and ask which one — don't guess.
+- BUT: if notes/company give clear context (e.g. user says "the Vitalik I met at TOKEN2049"), pick the matching contact without asking.
+- Example: 2 "Vitalik Buterins" exist. One has notes "met at TOKEN2049", the other has notes "test". "Find the Vitalik I met at TOKEN2049" → pick the one with that note.
 
 Tool routing rules:
 - "list my contacts", "show contacts", "who do I know" → list_contacts
@@ -265,6 +267,59 @@ User context (refreshed each turn):
 - User ID: {user_id}
 - Recent contacts: {recent_contacts}
 - Active trip: {active_trip}"""
+
+
+async def interpret_card_edit(current_card: dict, user_text: str) -> dict:
+    """Use MiniMax to extract field corrections from natural-language edits.
+
+    The structured `field: value` regex misses natural language like:
+        "Company is gebecert and email is nick@gebecert.com phone number is +85296846788"
+
+    Returns a dict like {"company": "gebecert", "email": "nick@gebecert.com"}
+    or {} if no corrections can be extracted.
+    """
+    if not MINIMAX_API_KEY:
+        return {}
+    try:
+        prompt = (
+            "Current business card fields:\n"
+            f"{json.dumps(current_card, indent=2)}\n\n"
+            f'User said: "{user_text}"\n\n'
+            "Extract any field corrections from the user's message. "
+            "Return ONLY a JSON object like {\"field\": \"value\", ...} or {} if no corrections.\n"
+            "Valid fields: name, title, company, email, phone, handle (Telegram username without @).\n"
+            "Include ALL digits in phone numbers (no spaces or dashes if the user provided none).\n"
+            "Example: 'Company is gebecert and email is nick@gebecert.com' "
+            '→ {"company": "gebecert", "email": "nick@gebecert.com"}'
+        )
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                CHAT_URL,
+                headers={
+                    "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": CHAT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+        text = data["choices"][0]["message"]["content"].strip()
+        # Strip markdown code fences if present
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        result = json.loads(text)
+        # Sanity: only keep valid fields
+        valid = {"name", "title", "company", "email", "phone", "handle"}
+        result = {k: v for k, v in result.items() if k in valid and isinstance(v, str) and v.strip()}
+        log.info("interpret_card_edit: %s → %s", user_text[:50], result)
+        return result
+    except Exception as e:
+        log.warning("interpret_card_edit failed: %s", e)
+        return {}
 
 
 async def build_system_prompt(user_id: str) -> str:

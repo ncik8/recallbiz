@@ -19,6 +19,7 @@ from db import (
     get_or_create_user, get_filtered_contacts, update_contact_notes,
 )
 from ocr import try_decode_qr, parse_telegram_qr
+from ai import interpret_card_edit
 from ai import extract_card_from_image, handle_conversation
 
 
@@ -535,7 +536,7 @@ async def _confirm_ocr_save(update, context):
         )
         return True
 
-    # Edit: "field: value" pattern
+    # Edit: "field: value" pattern (structured)
     match = re.match(r"(\w+)\s*:\s*(.+)", text, re.IGNORECASE)
     if match:
         field, value = match.groups()
@@ -548,10 +549,24 @@ async def _confirm_ocr_save(update, context):
             )
             return True
 
+    # Natural-language edit: ask MiniMax to extract corrections
+    if not text.lower().startswith(("yes", "y", "save", "no", "n", "cancel", "discard")):
+        updates = await interpret_card_edit(extracted, text)
+        if updates:
+            extracted.update(updates)
+            context.user_data["pending_card"] = extracted
+            await update.message.reply_text(
+                f"Got it — updated {', '.join(updates.keys())}.\n\n"
+                f"Reply YES to save, or keep editing."
+            )
+            return True
+
     # Default
     await update.message.reply_text(
         "Reply YES to save, NO to discard.\n"
-        "Or fix a field: name: John Smith, email: j@x.com"
+        "Or fix a field — either style works:\n"
+        "  company: Gebecert\n"
+        "  Company is gebecert, email is nick@gebecert.com"
     )
     return True
 
