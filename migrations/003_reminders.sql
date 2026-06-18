@@ -70,8 +70,16 @@ CREATE INDEX IF NOT EXISTS idx_reminders_user_pending
     WHERE status = 'pending';
 
 -- ============================================================
--- 4. Row Level Security
+-- 4. Row Level Security — simplified
 -- ============================================================
+-- Bot uses service_role key which bypasses RLS, so it can manage
+-- reminders for any user. The app-layer in db.py filters by user_id
+-- on every query. RLS here is defense-in-depth for the REST API (anon key).
+--
+-- NOTE: the previous RLS policies used a comparison between users.telegram_user_id
+-- (bigint) and JWT claim text, which Postgres rejected with 42883.
+-- Simpler approach: drop RLS, app-layer filtering is sufficient for v0.1.
+-- Re-enable with explicit casting when adding a public REST endpoint.
 ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users see own reminders" ON reminders;
@@ -79,32 +87,19 @@ DROP POLICY IF EXISTS "Users insert own reminders" ON reminders;
 DROP POLICY IF EXISTS "Users update own reminders" ON reminders;
 DROP POLICY IF EXISTS "Users delete own reminders" ON reminders;
 
-CREATE POLICY "Users see own reminders"
+-- Permissive policy: deny all by default, service_role bypasses.
+-- When you add a user-facing REST endpoint, write a policy that casts
+-- the JWT claim to bigint: ((current_setting('request.jwt.claims', true)::json->>'telegram_user_id')::bigint)
+CREATE POLICY "Service role manages all reminders"
+    ON reminders FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY "Anon read only own reminders"
     ON reminders FOR SELECT
-    USING (user_id = (SELECT id FROM users WHERE telegram_user_id = (
-        (current_setting('request.jwt.claims', true)::json->>'telegram_user_id')::text
-    )));
-
-CREATE POLICY "Users insert own reminders"
-    ON reminders FOR INSERT
-    WITH CHECK (user_id = (SELECT id FROM users WHERE telegram_user_id = (
-        (current_setting('request.jwt.claims', true)::json->>'telegram_user_id')::text
-    )));
-
-CREATE POLICY "Users update own reminders"
-    ON reminders FOR UPDATE
-    USING (user_id = (SELECT id FROM users WHERE telegram_user_id = (
-        (current_setting('request.jwt.claims', true)::json->>'telegram_user_id')::text
-    )));
-
-CREATE POLICY "Users delete own reminders"
-    ON reminders FOR DELETE
-    USING (user_id = (SELECT id FROM users WHERE telegram_user_id = (
-        (current_setting('request.jwt.claims', true)::json->>'telegram_user_id')::text
-    )));
-
--- Note: the bot uses service_role key which bypasses RLS, so it can manage
--- reminders for any user. The app-layer still filters by user_id.
+    TO anon
+    USING (false);  -- Will be replaced when user auth is wired
 
 -- ============================================================
 -- 5. touch_user updated_at trigger already covers users (001).
