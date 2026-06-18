@@ -1,22 +1,25 @@
--- ============================================================
--- 002 — Fix contacts.search_vector (broken in 001: missing || between string literals)
--- ============================================================
--- Run in: Supabase Dashboard → SQL Editor → New Query → paste → Run
+-- Migration 002: Fix search_vector column on contacts
 --
--- The original migration had:
---   coalesce(name, '')  ' '  coalesce(handle, '')  -- missing ||
--- Postgres needs || for concat, so the search_vector column may not exist
--- or may exist with broken contents. This migration:
---   1. Drops the column (no data loss — it's a generated column)
---   2. Recreates it with correct || operators
---   3. Recreates the GIN index
--- ============================================================
+-- Issue: The original 001_initial_schema.sql had a syntax error in the
+-- GENERATED ALWAYS AS expression — adjacent string literals need ||
+-- between them in Postgres (e.g. `coalesce(name, '') || ' ' ||`).
+-- Without ||, Postgres would throw a syntax error on creation.
+--
+-- But the column IS in the schema (your query confirmed this). Possible
+-- explanations:
+--   a) Postgres created the column with an empty/broken expression
+--   b) Adjacent literals were concatenated differently than I expected
+--   c) The IF NOT EXISTS clause masked a partial failure
+--
+-- Either way: this migration drops + recreates the column with the
+-- correct expression. All 5 fields are included.
+--
+-- Run in: Supabase Dashboard → SQL Editor → New query → paste → Run
 
--- Drop index first (if exists), then column
-DROP INDEX IF EXISTS idx_contacts_search;
-ALTER TABLE contacts DROP COLUMN IF EXISTS search_vector;
+-- Drop the existing column (CASCADE to also drop the GIN index)
+ALTER TABLE contacts DROP COLUMN IF EXISTS search_vector CASCADE;
 
--- Recreate with correct syntax
+-- Recreate with proper || operators
 ALTER TABLE contacts ADD COLUMN search_vector tsvector
     GENERATED ALWAYS AS (
         to_tsvector('english',
@@ -28,9 +31,26 @@ ALTER TABLE contacts ADD COLUMN search_vector tsvector
         )
     ) STORED;
 
--- Recreate the GIN index
-CREATE INDEX idx_contacts_search ON contacts USING GIN(search_vector);
+-- Recreate the GIN index for fast full-text search
+CREATE INDEX IF NOT EXISTS idx_contacts_search ON contacts USING GIN(search_vector);
 
--- Sanity check: this query should return ALL contacts (all have a search_vector now)
--- SELECT count(*) FROM contacts;
--- Expected: matches SELECT count(*) FROM contacts (every row has a search_vector)
+-- ============================================================
+-- VERIFICATION — run this AFTER the migration to confirm it's correct:
+-- ============================================================
+-- SELECT generation_expression
+-- FROM information_schema.columns
+-- WHERE table_name = 'contacts' AND column_name = 'search_vector';
+--
+-- Expected: should show "to_tsvector('english'::regconfig, ...)" with
+-- all 5 fields (name, handle, company, title, notes).
+--
+-- FUNCTIONAL TEST — insert + query a test row (replace USER_ID with
+-- a real UUID from your users table):
+--
+-- INSERT INTO contacts (user_id, name, company, handle, source)
+-- VALUES ('YOUR_USER_UUID_HERE', 'Vitalik Buterin', 'Ethereum', 'vitalik', 'test');
+--
+-- SELECT name, company FROM contacts
+-- WHERE search_vector @@ to_tsquery('english', 'vitalik');
+--
+-- Expected: returns the row you just inserted.
