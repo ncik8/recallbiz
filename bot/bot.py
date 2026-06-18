@@ -41,6 +41,23 @@ async def _resolve_user_id(update, context) -> str:
     context.user_data["user_id"] = user_id
     return user_id
 
+
+async def _is_signed_up(user_id: str) -> bool:
+    """True if the user is cleared to save (signed up via email OR marked as tester).
+
+    Used as a soft gate: blocking all save actions until /signup completes.
+    Fails OPEN on any error so a DB hiccup never breaks a real command.
+    """
+    try:
+        from db import get_user
+        user = await asyncio.get_event_loop().run_in_executor(None, lambda: get_user(user_id))
+        if not user:
+            return False
+        return bool(user.get("is_tester")) or bool(user.get("email_verified"))
+    except Exception as e:
+        log.warning("_is_signed_up check failed: %s", e)
+        return True  # fail open
+
 load_dotenv()
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -60,19 +77,19 @@ Your business card scanner + personal CRM, right inside Telegram.
 Long-press in your chat list → "Pin". You'll want RecallBiz at the top during events.
 
 📋 MENU
+  /signup — required before any save (free = 10 contacts)
   /save  — add a contact manually
   /list  — your recent contacts
   /find  — search by name, company, notes
   /trip  — start/stop a trip (auto-tag who you meet)
-  /signup — get unlimited contacts (free plan = 10)
   /help  — all commands + how-tips
 
 Type / anytime to see this menu.
 
-QUICK START
-  1. /trip set <your event name>  ← starts auto-tagging
-  2. /save to add contacts manually (QR auto-save coming soon)
-  3. /find or /list to look them up"""
+HOW IT WORKS
+1. Type /signup you@gmail.com — we send a magic link to confirm
+2. Click it, you're in (free plan = 10 contacts)
+3. Forward a Telegram QR, send a photo of a card, or share a contact"""
 
 HELP = """Commands:
   /start — Welcome + onboarding
@@ -106,11 +123,81 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from auth import complete_signup
         result = await complete_signup(token)
         if result.get("success"):
-            await update.message.reply_text(
+            reply = (
                 f"Email confirmed: {result['email']}\n"
                 f"You're signed up. Free plan includes 10 contacts. "
                 f"/help for everything the bot can do."
             )
+            # Resume any pending save that was gated behind signup.
+            pending = context.user_data.pop("pending_signup_resume", None)
+            if pending:
+                ptype = pending.get("type")
+                if ptype == "contact_share":
+                    # Contact share is atomic — re-call save_contact with stashed args.
+                    try:
+                        contact_id = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: save_contact(
+                                user_id=user_id,
+                                name=pending["name"],
+                                phone=pending.get("phone"),
+                                telegram_user_id=pending.get("telegram_user_id"),
+                                source="telegram_share",
+                            ),
+                        )
+                        log_usage(user_id, "contact_saved_resumed", f"contact_id={contact_id}")
+                        extra = "\n".join(
+                            [f"Phone: {pending['phone']}"] +
+                            (["(Telegram user)"] if pending.get("telegram_user_id") else [])
+                        )
+                        reply += f"\n\nResumed your last share: saved {pending['name']}.\n{extra}"
+                    except Exception as e:
+                        log.exception("resume contact_share failed")
+                        reply += "\n\nCouldn't auto-resume your last share — please re-send it."
+                elif ptype == "photo":
+                    reply += (
+                        "\n\nResuming your last photo — give me a sec to read the card..."
+                    )
+                    # Re-fetch the photo file by stashed file_id and OCR it.
+                    try:
+                        from ocr import extract_card_from_image, try_decode_qr
+                        tg_file = await context.bot.get_file(pending["file_id"])
+                        photo_bytes = bytes(await tg_file.download_as_bytearray())
+                        # Try QR first
+                        qr = try_decode_qr(photo_bytes)
+                        if qr:
+                            from db import parse_telegram_qr  # ensure import
+                            reply += f"\n(Detected Telegram QR: {qr[:80]})"
+                        else:
+                            extracted = await extract_card_from_image(photo_bytes)
+                            if extracted and (extracted.get("name") or extracted.get("email") or extracted.get("phone")):
+                                contact_id = await asyncio.get_event_loop().run_in_executor(
+                                    None,
+                                    lambda: save_contact(
+                                        user_id=user_id,
+                                        name=extracted.get("name", "Unknown"),
+                                        handle=extracted.get("handle"),
+                                        company=extracted.get("company"),
+                                        title=extracted.get("title"),
+                                        email=extracted.get("email"),
+                                        phone=extracted.get("phone"),
+                                        website=extracted.get("website"),
+                                        source="paper_ocr",
+                                    ),
+                                )
+                                reply += f"\nSaved from card: {extracted.get('name')} ({extracted.get('company') or 'no company'})"
+                            else:
+                                reply += "\nCouldn't read the card. Try /save to add manually."
+                    except Exception as e:
+                        log.exception("resume photo failed")
+                        reply += "\nCouldn't auto-resume your last photo — please re-send it."
+                elif ptype == "manual_save":
+                    # Re-enter the /save wizard with stashed partial data.
+                    for k, v in pending.get("partial", {}).items():
+                        context.user_data[k] = v
+                    context.user_data["save_step"] = pending.get("next_step", "handle")
+                    reply += "\n\nResuming your /save. What's their Telegram handle? (or /skip)"
+            await update.message.reply_text(reply)
         else:
             await update.message.reply_text(
                 f"Couldn't verify: {result.get('error', 'unknown error')}\n"
@@ -160,6 +247,17 @@ async def save_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manual save flow — interactive prompts."""
     user_id = await _resolve_user_id(update, context)
     log_usage(user_id, "save_start")
+
+    # Signup gate — block /save until email is verified (testers bypass).
+    if not await _is_signed_up(user_id):
+        log_usage(user_id, "signup_gate_blocked", details="manual_save")
+        await update.message.reply_text(
+            "Quick signup to keep your contacts safe.\n\n"
+            "/signup you@gmail.com\n"
+            "(Free plan = 10 contacts, ~30 sec)\n\n"
+            "Then /save again to add this contact."
+        )
+        return
 
     context.user_data["save_step"] = "name"
     await update.message.reply_text(
@@ -494,6 +592,24 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = (contact.phone_number or "").replace(" ", "").replace("-", "") or None
     tg_uid = contact.user_id  # int or None — only set if they're a Telegram user
 
+    # Signup gate — block first save until email is verified (testers bypass).
+    if not await _is_signed_up(user_id):
+        log_usage(user_id, "signup_gate_blocked", details="contact_share")
+        # Stash for auto-resume after /signup completes.
+        context.user_data["pending_signup_resume"] = {
+            "type": "contact_share",
+            "name": name,
+            "phone": phone,
+            "telegram_user_id": tg_uid,
+        }
+        await update.message.reply_text(
+            "Quick signup to keep your contacts safe.\n\n"
+            "/signup you@gmail.com\n"
+            "(Free plan = 10 contacts, ~30 sec)\n\n"
+            f"I'll auto-save {name} after you confirm."
+        )
+        return
+
     try:
         contact_id = await loop.run_in_executor(
             None,
@@ -547,6 +663,23 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"You've used all {limit['limit']} free contacts.\n"
             f"Sign up at {APP_URL_PUBLIC} for unlimited saves."
+        )
+        return
+
+    # Signup gate — block first save until email is verified (testers bypass).
+    if not await _is_signed_up(user_id):
+        log_usage(user_id, "signup_gate_blocked", details="photo")
+        # Stash the largest photo's file_id for resume after signup.
+        largest = photos[-1]
+        context.user_data["pending_signup_resume"] = {
+            "type": "photo",
+            "file_id": largest.file_id,
+        }
+        await update.message.reply_text(
+            "Quick signup to keep your contacts safe.\n\n"
+            "/signup you@gmail.com\n"
+            "(Free plan = 10 contacts, ~30 sec)\n\n"
+            "I'll auto-OCR this card and save the contact after you confirm."
         )
         return
 

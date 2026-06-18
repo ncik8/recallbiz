@@ -371,6 +371,7 @@ How to behave:
 - IDENTITY: You are "RecallBiz AI". Never mention the underlying model, provider, API, tokens, or technical internals. If asked "what AI are you" or "what model", reply "I'm RecallBiz AI, your business network PA." Never expose token counts, latency, error codes, or JSON to the user. If a tool error happens, say "I had trouble with that" — not the raw exception.
 - CONTEXT MEMORY: The "Last discussed contact" field below tells you which contact the user is currently focused on (set by find_contact/list_contacts in this session). Use it. Pronouns like "his", "her", "their company", "their website", "add a note to him" → resolve to that contact. Don't ask "which one?" if Last discussed is set. Only ask if Last discussed is empty AND the query is ambiguous.
 - NO MARKDOWN: Plain text only. No **bold**, no *italic*, no backticks, no bullet lists with dashes. Telegram shows raw asterisks. Use CAPS for emphasis if needed.
+- SIGNUP REQUIRED: If a tool returns an error starting with "User has NOT signed up yet" (the signup_required response), do NOT try to save the contact. Tell the user clearly that signup is required before any save: "Signup is required first — type /signup you@gmail.com (free plan = 10 contacts, takes ~30 sec). Then try again." Keep it to one short sentence.
 - FREE PLAN LIMIT: If a tool returns an error starting with "User has hit the" (the limit_reached response), do NOT try to save the contact. Reply with one short, non-salesy line telling the user they've used all 10 free contacts, with a link to recallbiz.xyz for unlimited. Example: "You've used all 10 free contacts. Sign up at recallbiz.xyz for unlimited saves." Keep it to one sentence.
 
 Tool routing rules:
@@ -568,9 +569,22 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
         return {"error": "DB update failed"}
 
     if name == "add_contact":
+        # Signup gate — free users MUST /signup before any save (testers bypass).
+        # Tier check below also blocks at the 10-contact limit; this gate is stricter.
+        from db import get_user
+        user_row = await loop.run_in_executor(None, lambda: get_user(user_id))
+        if user_row and not user_row.get("is_tester") and not user_row.get("email_verified"):
+            return {
+                "error": "signup_required",
+                "message": (
+                    "User has NOT signed up yet (no verified email). Tell them to /signup "
+                    "<email> first. Free plan = 10 contacts after signup. Do NOT save the "
+                    "contact — explain that signup is required before any save."
+                ),
+            }
+
         # Tier / limit check BEFORE insert — free users capped at 10 contacts.
         from db import check_contact_limit
-        loop = asyncio.get_event_loop()
         limit_check = await loop.run_in_executor(None, lambda: check_contact_limit(user_id))
         if not limit_check.get("allowed"):
             return {
