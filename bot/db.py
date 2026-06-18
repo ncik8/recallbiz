@@ -760,3 +760,145 @@ def prune_old_messages(user_id: str, keep: int = 50) -> int:
     except Exception as e:
         log.warning("prune_old_messages failed: %s", e)
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Auth + tier system (migration 005)
+# ---------------------------------------------------------------------------
+# Goal: link telegram identity to a verified email so we have a real user
+# metric for funding, and gate free users at 10 contacts while grandfathering
+# the 2-3 testers as unlimited.
+
+FREE_CONTACT_LIMIT = 10
+
+
+def get_user(user_id: str) -> Optional[dict]:
+    """Get full user record by ID. Used for tier / limit checks."""
+    try:
+        res = (
+            get_client().table("users")
+            .select("*")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        log.warning("get_user failed: %s", e)
+        return None
+
+
+def count_user_contacts(user_id: str) -> int:
+    """Count all contacts for a user (regardless of status)."""
+    try:
+        res = (
+            get_client().table("contacts")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .limit(0)
+            .execute()
+        )
+        return int(res.count or 0)
+    except Exception as e:
+        log.warning("count_user_contacts failed: %s", e)
+        return 0
+
+
+def check_contact_limit(user_id: str) -> dict:
+    """Check whether a user can save another contact under their plan.
+
+    Returns:
+        {"allowed": True, "plan": "free", "current": N, "limit": 10} OR
+        {"allowed": True, "plan": "pro"|"tester"} OR
+        {"allowed": False, "plan": "free", "current": 10, "limit": 10, "reason": "free_limit"}
+
+    Fails OPEN on any error — never blocks a real command because of a DB hiccup.
+    """
+    try:
+        user = get_user(user_id)
+        if not user:
+            return {"allowed": True}
+
+        plan = user.get("plan", "free")
+        is_tester = bool(user.get("is_tester", False))
+
+        # Unlimited tiers bypass the count check
+        if plan in ("pro", "team", "tester") or is_tester:
+            return {"allowed": True, "plan": "tester" if is_tester else plan}
+
+        # Free plan: count and compare
+        current = count_user_contacts(user_id)
+        if current >= FREE_CONTACT_LIMIT:
+            return {
+                "allowed": False,
+                "plan": "free",
+                "current": current,
+                "limit": FREE_CONTACT_LIMIT,
+                "reason": "free_limit",
+            }
+        return {
+            "allowed": True,
+            "plan": "free",
+            "current": current,
+            "limit": FREE_CONTACT_LIMIT,
+        }
+    except Exception as e:
+        log.warning("check_contact_limit failed: %s", e)
+        return {"allowed": True}
+
+
+def create_magic_token(user_id: str, email: str, token: str) -> bool:
+    """Create a magic-link token. Wipes any prior un-used tokens for this user."""
+    try:
+        client = get_client()
+        client.table("magic_link_tokens").delete().eq("user_id", user_id).execute()
+        client.table("magic_link_tokens").insert({
+            "user_id": user_id,
+            "email": email,
+            "token": token,
+        }).execute()
+        return True
+    except Exception as e:
+        log.warning("create_magic_token failed: %s", e)
+        return False
+
+
+def consume_magic_token(token: str) -> dict:
+    """Consume a magic-link token. Marks used_at + sets the user's email_verified.
+
+    Returns: {"success": True, "email": "..."} | {"error": "..."}
+    """
+    try:
+        client = get_client()
+        res = (
+            client.table("magic_link_tokens")
+            .select("*")
+            .eq("token", token)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return {"error": "Invalid link. Try /signup again."}
+        record = res.data[0]
+
+        from datetime import datetime, timezone
+        expires_at = datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00"))
+        if expires_at < datetime.now(timezone.utc):
+            return {"error": "Link expired. Try /signup again."}
+        if record.get("used_at"):
+            return {"error": "Link already used."}
+
+        client.table("magic_link_tokens").update({
+            "used_at": "now()",
+        }).eq("token", token).execute()
+
+        client.table("users").update({
+            "email": record["email"],
+            "email_verified": True,
+        }).eq("id", record["user_id"]).execute()
+
+        log.info("Magic link consumed for user_id=%s email=%s", record["user_id"], record["email"])
+        return {"success": True, "email": record["email"]}
+    except Exception as e:
+        log.exception("consume_magic_token failed: %s", e)
+        return {"error": "Verification failed. Try /signup again."}

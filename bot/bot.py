@@ -49,6 +49,9 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+APP_URL_PUBLIC = os.environ.get("APP_URL_PUBLIC", "https://recallbiz.xyz")
+
+
 WELCOME = """👋 Welcome to RecallBiz.
 
 Your business card scanner + personal CRM, right inside Telegram.
@@ -61,6 +64,7 @@ Long-press in your chat list → "Pin". You'll want RecallBiz at the top during 
   /list  — your recent contacts
   /find  — search by name, company, notes
   /trip  — start/stop a trip (auto-tag who you meet)
+  /signup — get unlimited contacts (free plan = 10)
   /help  — all commands + how-tips
 
 Type / anytime to see this menu.
@@ -94,7 +98,58 @@ Filters for /send:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await _resolve_user_id(update, context)
     log_usage(user_id, "start")
+
+    # Magic link deep-link: /start verify_<token>
+    args = (context.args or [])
+    if args and args[0].startswith("verify_"):
+        token = args[0][len("verify_"):]
+        from auth import complete_signup
+        result = await complete_signup(token)
+        if result.get("success"):
+            await update.message.reply_text(
+                f"Email confirmed: {result['email']}\n"
+                f"You're signed up. Free plan includes 10 contacts. "
+                f"/help for everything the bot can do."
+            )
+        else:
+            await update.message.reply_text(
+                f"Couldn't verify: {result.get('error', 'unknown error')}\n"
+                f"Try /signup <your-email> again."
+            )
+        return
+
     await update.message.reply_text(WELCOME)
+
+
+async def signup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Begin email signup: generate token + send magic link via Resend."""
+    from auth import start_signup
+    user_id = await _resolve_user_id(update, context)
+    log_usage(user_id, "signup_start")
+
+    if not context.args:
+        await update.message.reply_text(
+            "Send your email like this:\n\n/signup you@gmail.com"
+        )
+        return
+
+    email = " ".join(context.args).strip()
+    result = await start_signup(user_id, email)
+    if result.get("success"):
+        email = result["email"]
+        if result.get("dev_mode"):
+            # No Resend key — log the link so Nick can click it manually
+            await update.message.reply_text(
+                f"DEV MODE: Resend isn't configured, so I logged your magic link "
+                f"in the bot's terminal output. Open it to confirm:\n\n{result['link']}"
+            )
+        else:
+            await update.message.reply_text(
+                f"Sent a confirmation link to {email}. "
+                f"Click it within 15 minutes to activate your account."
+            )
+    else:
+        await update.message.reply_text(result.get("error", "Signup failed. Try again."))
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -418,6 +473,18 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not contact:
         return
 
+    # Tier / limit check BEFORE we touch the DB.
+    from db import check_contact_limit
+    loop = asyncio.get_event_loop()
+    limit = await loop.run_in_executor(None, lambda: check_contact_limit(user_id))
+    if not limit.get("allowed"):
+        log_usage(user_id, "limit_blocked", details=limit.get("reason", ""))
+        await update.message.reply_text(
+            f"You've used all {limit['limit']} free contacts.\n"
+            f"Sign up at {APP_URL_PUBLIC} for unlimited saves."
+        )
+        return
+
     # Compose display name — fall back to phone if name missing
     first = (contact.first_name or "").strip()
     last = (contact.last_name or "").strip()
@@ -428,7 +495,7 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_uid = contact.user_id  # int or None — only set if they're a Telegram user
 
     try:
-        contact_id = await asyncio.get_event_loop().run_in_executor(
+        contact_id = await loop.run_in_executor(
             None,
             lambda: save_contact(
                 user_id=user_id,
@@ -439,12 +506,18 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ),
         )
         log_usage(user_id, "contact_saved", f"contact_id={contact_id}")
+        remaining = (limit.get("limit", 10) - limit.get("current", 0) - 1) if limit.get("plan") == "free" else None
         lines = [f"Saved: {name}"]
         if phone:
             lines.append(f"Phone: {phone}")
         if tg_uid:
             lines.append("(Telegram user)")
-        lines.append("\nReply with anything to add (company, notes, etc.) or just ignore.")
+        if remaining is not None and remaining <= 3:
+            lines.append(f"\n{remaining} free contact(s) left. /signup for unlimited.")
+        elif remaining is not None:
+            lines.append(f"\nReply with anything to add (company, notes, etc.) or just ignore.")
+        else:
+            lines.append("\nReply with anything to add (company, notes, etc.) or just ignore.")
         await update.message.reply_text("\n".join(lines))
     except Exception as e:
         log.exception("contact_handler save_contact failed")
@@ -462,6 +535,18 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not photos:
         await update.message.reply_text(
             "Send me a photo of a Telegram QR or a paper business card."
+        )
+        return
+
+    # Tier / limit check BEFORE we do any expensive work.
+    from db import check_contact_limit
+    loop = asyncio.get_event_loop()
+    limit = await loop.run_in_executor(None, lambda: check_contact_limit(user_id))
+    if not limit.get("allowed"):
+        log_usage(user_id, "limit_blocked", details=limit.get("reason", ""))
+        await update.message.reply_text(
+            f"You've used all {limit['limit']} free contacts.\n"
+            f"Sign up at {APP_URL_PUBLIC} for unlimited saves."
         )
         return
 
@@ -832,6 +917,7 @@ def main():
     app.add_handler(CommandHandler("send", send_cmd))
     app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
+    app.add_handler(CommandHandler("signup", signup_cmd))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))

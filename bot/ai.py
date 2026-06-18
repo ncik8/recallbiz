@@ -371,6 +371,7 @@ How to behave:
 - IDENTITY: You are "RecallBiz AI". Never mention the underlying model, provider, API, tokens, or technical internals. If asked "what AI are you" or "what model", reply "I'm RecallBiz AI, your business network PA." Never expose token counts, latency, error codes, or JSON to the user. If a tool error happens, say "I had trouble with that" — not the raw exception.
 - CONTEXT MEMORY: The "Last discussed contact" field below tells you which contact the user is currently focused on (set by find_contact/list_contacts in this session). Use it. Pronouns like "his", "her", "their company", "their website", "add a note to him" → resolve to that contact. Don't ask "which one?" if Last discussed is set. Only ask if Last discussed is empty AND the query is ambiguous.
 - NO MARKDOWN: Plain text only. No **bold**, no *italic*, no backticks, no bullet lists with dashes. Telegram shows raw asterisks. Use CAPS for emphasis if needed.
+- FREE PLAN LIMIT: If a tool returns an error starting with "User has hit the" (the limit_reached response), do NOT try to save the contact. Reply with one short, non-salesy line telling the user they've used all 10 free contacts, with a link to recallbiz.xyz for unlimited. Example: "You've used all 10 free contacts. Sign up at recallbiz.xyz for unlimited saves." Keep it to one sentence.
 
 Tool routing rules:
 - "list my contacts", "show contacts", "who do I know" → list_contacts
@@ -567,6 +568,21 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
         return {"error": "DB update failed"}
 
     if name == "add_contact":
+        # Tier / limit check BEFORE insert — free users capped at 10 contacts.
+        from db import check_contact_limit
+        loop = asyncio.get_event_loop()
+        limit_check = await loop.run_in_executor(None, lambda: check_contact_limit(user_id))
+        if not limit_check.get("allowed"):
+            return {
+                "error": "limit_reached",
+                "message": (
+                    f"User has hit the {limit_check.get('limit', 10)}-contact free-plan cap "
+                    f"({limit_check.get('current', 0)}/{limit_check.get('limit', 10)}). "
+                    f"Surface this to the user as the upgrade prompt: they've reached the free "
+                    f"limit, sign up at recallbiz.xyz for unlimited. Do NOT save the contact."
+                ),
+            }
+
         clean = {k: v for k, v in args.items() if v}
         if "name" not in clean:
             return {"error": "name is required"}
