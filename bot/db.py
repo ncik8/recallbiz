@@ -44,18 +44,20 @@ def get_or_create_user(telegram_user_id: int, username: str = None,
                        display_name: str = None) -> str:
     """Resolve telegram_user_id -> internal users.id UUID. Creates row if new."""
     client = get_client()
+    # Use limit(1).execute() — NOT maybe_single() — because maybe_single
+    # returns None when no row matches, causing AttributeError on res.data.
     res = (
         client.table("users")
         .select("id")
         .eq("telegram_user_id", telegram_user_id)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
-    if res.data:
+    if res.data and len(res.data) > 0:
         client.table("users").update({"last_active_at": "now()"}).eq(
-            "id", res.data["id"]
+            "id", res.data[0]["id"]
         ).execute()
-        return res.data["id"]
+        return res.data[0]["id"]  
     res = (
         client.table("users")
         .insert({
@@ -178,11 +180,11 @@ def set_active_trip(user_id: str, event_name: str) -> str:
         .select("id")
         .eq("user_id", user_id)
         .eq("slug", slug)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
-    if res.data:
-        event_id = res.data["id"]
+    if res.data and len(res.data) > 0:
+        event_id = res.data[0]["id"]
         client.table("events").update({"active": True}).eq("id", event_id).execute()
         return event_id
     res = client.table("events").insert({
@@ -231,12 +233,12 @@ def get_filtered_contacts(user_id: str, filter_type: str, filter_value: str) -> 
             .select("id")
             .eq("user_id", user_id)
             .eq("name", filter_value)
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        if not tag_res.data:
+        if not tag_res.data or len(tag_res.data) == 0:
             return []
-        tag_id = tag_res.data["id"]
+        tag_id = tag_res.data[0]["id"] 
         res = (
             client.table("contact_tags")
             .select("contact_id, contacts!inner(id, name, handle, telegram_user_id, user_id)")
