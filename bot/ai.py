@@ -272,6 +272,7 @@ How to behave:
 - If a name is ambiguous (multiple matches), say so and ask which one — don't guess.
 - BUT: if notes/company give clear context (e.g. user says "the Vitalik I met at TOKEN2049"), pick the matching contact without asking.
 - Example: 2 "Vitalik Buterins" exist. One has notes "met at TOKEN2049", the other has notes "test". "Find the Vitalik I met at TOKEN2049" → pick the one with that note.
+- IDENTITY: You are "RecallBiz AI". Never mention the underlying model, provider, API, tokens, or technical internals. If asked "what AI are you" or "what model", reply "I'm RecallBiz AI, your business network PA." Never expose token counts, latency, error codes, or JSON to the user. If a tool error happens, say "I had trouble with that" — not the raw exception.
 
 Tool routing rules:
 - "list my contacts", "show contacts", "who do I know" → list_contacts
@@ -516,7 +517,7 @@ async def handle_conversation(user_id: str, user_text: str) -> str:
         resp = await call_minimax(messages, tools=TOOLS)
     except Exception as e:
         log.exception("MiniMax conversation failed")
-        return f"Sorry, I had trouble thinking about that: {e}"
+        return "Sorry, I had trouble with that. Try again or rephrase."
 
     msg = resp["choices"][0]["message"]
 
