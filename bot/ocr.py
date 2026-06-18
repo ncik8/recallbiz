@@ -1,11 +1,11 @@
 """Image processing for RecallBiz bot.
 
 Two paths:
-1. QR code decode (pyzbar) — instant, deterministic, perfect for Telegram QRs
-2. Paper card OCR (pytesseract + heuristic parser) — slower, ~80% accurate
+1. QR code decode (OpenCV cv2) — pure Python wheel, no system deps
+2. Paper card OCR (pytesseract + heuristic parser) — needs tesseract binary
 
-For v0.1 we use local Tesseract. MiniMax Vision can be added later as an
-accuracy upgrade if paper card OCR is too error-prone on real cards.
+For v0.1 we use local Tesseract for OCR + OpenCV for QR (no system libzbar).
+MiniMax Vision can be added later as an accuracy upgrade.
 """
 import io
 import re
@@ -13,25 +13,40 @@ import logging
 from typing import Optional
 
 from PIL import Image, ImageOps
-from pyzbar.pyzbar import decode as pyzbar_decode
 
 log = logging.getLogger(__name__)
 
+# Lazy imports — these are heavy and we don't want to import unless needed
+_cv2 = None
+
+
+def _get_cv2():
+    global _cv2
+    if _cv2 is None:
+        import cv2
+        _cv2 = cv2
+    return _cv2
+
 
 def try_decode_qr(image_bytes: bytes) -> Optional[str]:
-    """Try to decode a QR code from image bytes. Returns the URL or None."""
+    """Try to decode a QR code from image bytes. Returns the URL or None.
+
+    Uses OpenCV's QRCodeDetector — pure Python wheel, no system deps needed.
+    """
     try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        # Try original first, then grayscale (some QRs need grayscale)
-        decoded = pyzbar_decode(img)
-        if not decoded:
-            decoded = pyzbar_decode(ImageOps.grayscale(img))
-        if decoded:
-            data = decoded[0].data.decode("utf-8", errors="ignore")
+        cv2 = _get_cv2()
+        import numpy as np
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        detector = cv2.QRCodeDetector()
+        data, _, _ = detector.detectAndDecode(img)
+        if data:
             log.info("QR decoded: %s", data[:100])
             return data
     except Exception as e:
-        log.warning("pyzbar decode failed: %s", e)
+        log.warning("cv2 QR decode failed: %s", e)
     return None
 
 
@@ -115,7 +130,7 @@ def parse_card_text(text: str) -> dict:
         "Lead", "Head", "VP", "President", "Partner", "Analyst",
         "Consultant", "Architect", "Chief", "Officer", "Principal",
         "Specialist", "Associate", "Researcher", "Scientist",
-        "Product", "Marketing", "Sales", "Operations", "Engineer",
+        "Product", "Marketing", "Sales", "Operations",
     )
 
     if lines:
@@ -126,7 +141,7 @@ def parse_card_text(text: str) -> dict:
             if len(lines) > 2:
                 result["company"] = lines[2]
         else:
-            # If second line has typical company markers (Inc, Ltd, LLC, etc.)
+            # If second line has typical company markers
             company_markers = ("Inc", "Ltd", "LLC", "Corp", "Co.", "GmbH", "S.A.",
                                "Group", "Labs", "Studio", "Capital", "Ventures",
                                "Partners", "Foundation", "Holdings")
@@ -135,7 +150,6 @@ def parse_card_text(text: str) -> dict:
                 if len(lines) > 2:
                     result["title"] = lines[2]
             else:
-                # Default: second line = company, third = title
                 result["company"] = lines[1]
                 if len(lines) > 2:
                     result["title"] = lines[2]
@@ -154,7 +168,6 @@ def parse_telegram_qr(qr_url: str) -> Optional[str]:
     if not qr_url:
         return None
     if "t.me/" in qr_url:
-        # https://t.me/username or t.me/username
         after = qr_url.split("t.me/")[-1]
         handle = after.split("?")[0].split("/")[0].strip()
         if handle and handle != "joinchat":
