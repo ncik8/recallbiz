@@ -144,35 +144,65 @@ def save_contact(
 def search_contacts(user_id: str, query: str, limit: int = 10) -> list:
     """Full-text search using search_vector (Postgres tsvector + GIN index).
 
-    NOTE: supabase-py's text_search() returns a builder that does NOT chain
-    with .limit(). Use .range() instead. Bug confirmed June 2026.
+    supabase-py's text_search() returns a builder that does NOT chain with
+    .limit() or .range() — calling either raises AttributeError. Workaround:
+    call .execute() directly, slice in Python.
     """
     if not query.strip():
         return []
     client = get_client()
-    res = (
-        client.table("contacts")
-        .select("*")
-        .eq("user_id", user_id)
-        .text_search("search_vector", query, options={"type": "websearch"})
-        .range(0, limit - 1)
-        .execute()
-    )
-    return res.data or []
+    try:
+        res = (
+            client.table("contacts")
+            .select("*")
+            .eq("user_id", user_id)
+            .text_search("search_vector", query, options={"type": "websearch"})
+            .execute()
+        )
+        return (res.data or [])[:limit]
+    except Exception as e:
+        log.warning("text_search failed, falling back to ilike: %s", e)
+        # Fallback: substring search across key fields
+        res = (
+            client.table("contacts")
+            .select("*")
+            .eq("user_id", user_id)
+            .or_(
+                f"name.ilike.%{query}%,"
+                f"handle.ilike.%{query}%,"
+                f"company.ilike.%{query}%,"
+                f"title.ilike.%{query}%,"
+                f"notes.ilike.%{query}%"
+            )
+            .execute()
+        )
+        return (res.data or [])[:limit] or []
 
 
 def list_recent(user_id: str, limit: int = 10) -> list:
-    # list_recent uses .order() which DOES chain with .limit(), so OK as-is
-    client = get_client()
-    res = (
-        client.table("contacts")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("saved_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    return res.data or []
+    try:
+        client = get_client()
+        res = (
+            client.table("contacts")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("saved_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        log.warning("list_recent failed: %s", e)
+        return []
+
+
+def _safe(fn, default=None):
+    """Run a db function, log on error, return default."""
+    try:
+        return fn()
+    except Exception as e:
+        log.warning("db call failed: %s", e)
+        return default
 
 
 def set_active_trip(user_id: str, event_name: str) -> str:
