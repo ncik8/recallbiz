@@ -122,7 +122,8 @@ async def extract_card_from_image(image_bytes: bytes) -> Optional[dict]:
         resp = await call_minimax(messages, temperature=0.1)
         content = resp["choices"][0]["message"]["content"] or ""
         log.info("MiniMax OCR raw: %s", content[:300])
-        parsed = _parse_json_from_text(content)
+        cleaned = _clean_response(content)
+        parsed = _parse_json_from_text(cleaned)
         if not parsed:
             return None
         # Drop empty/null fields
@@ -394,9 +395,9 @@ async def handle_conversation(user_id: str, user_text: str) -> str:
 
     msg = resp["choices"][0]["message"]
 
-    # If no tool calls, just return the text
+    # If no tool calls, return the cleaned text
     if not msg.get("tool_calls"):
-        return msg.get("content") or "I'm not sure how to help with that."
+        return _clean_response(msg.get("content")) or "I'm not sure how to help with that."
 
     # Execute tool calls
     messages.append(msg)
@@ -415,7 +416,22 @@ async def handle_conversation(user_id: str, user_text: str) -> str:
     # Second call: get natural-language summary
     try:
         resp2 = await call_minimax(messages, tools=TOOLS)
-        return resp2["choices"][0]["message"].get("content") or "Done."
+        text = _clean_response(resp2["choices"][0]["message"].get("content"))
+        return text or "Done."
     except Exception as e:
         log.exception("MiniMax follow-up call failed")
         return "Done — but I couldn't write a summary. Try /list to see the result."
+
+
+import re
+_THINK_BLOCK_RE = re.compile(r"<(?:think|thinking)>.*?</(?:think|thinking)>", re.DOTALL | re.IGNORECASE)
+
+
+def _clean_response(text: Optional[str]) -> str:
+    """Strip M3's internal  tags from text before sending to user."""
+    if not text:
+        return ""
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    # Collapse multiple blank lines that result from stripping
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
