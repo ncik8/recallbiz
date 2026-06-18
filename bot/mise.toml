@@ -1,0 +1,4 @@
+# mise config — disable GitHub attestation check (some Python versions lack attestations)
+# https://mise.jdx.dev/settings.html#python-github-attestations
+[settings]
+python.github_attestations = false
