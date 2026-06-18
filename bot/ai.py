@@ -254,6 +254,13 @@ Tool routing rules:
 - "I'm at TOKEN2049", "starting trip X" → start_trip(name=X)
 - "stop trip", "ending trip" → stop_trip
 
+Display rules (apply to every list/find response):
+- For each contact, show: name · @handle · company · notes (truncate to 80 chars)
+- When find_contact returns duplicates (same name, different notes), ALWAYS include notes so the user can tell them apart. Example: "Vitalik Buterin — notes: met at TOKEN2049" vs "Vitalik Buterin — notes: ETH dev follow-up".
+- If the user gave a hint ("the one from TOKEN2049", "the one with the ETH note"), pick the matching one and confirm: "Found Vitalik Buterin — met at TOKEN2049. What do you want to do?"
+- If duplicates remain ambiguous after showing notes, ask "Which one?" with a one-line summary of each.
+- Cap lists at 10. If more, say "showing the 10 most recent — narrow with /find <query>".
+
 User context (refreshed each turn):
 - User ID: {user_id}
 - Recent contacts: {recent_contacts}
