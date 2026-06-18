@@ -1,5 +1,6 @@
 """RecallBiz Telegram bot — main entry point."""
 import os
+import re
 import asyncio
 import logging
 from dotenv import load_dotenv
@@ -17,6 +18,7 @@ from db import (
     set_active_trip, get_active_trip, deactivate_trip, count_trip_contacts,
     get_or_create_user, get_filtered_contacts,
 )
+from ocr import try_decode_qr, try_ocr_card, parse_telegram_qr
 
 
 async def _resolve_user_id(update, context) -> str:
@@ -359,24 +361,181 @@ async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """If user is mid-save, route to save handler. Otherwise echo."""
+    """If user is mid-save or confirming OCR, route. Otherwise echo."""
+    if context.user_data.get("pending_card"):
+        await _confirm_ocr_save(update, context)
+        return
     if context.user_data.get("save_step"):
         await _handle_save_message(update, context)
         return
     await update.message.reply_text(
         "I don't understand text yet. Use a command:\n"
-        "/save · /list · /find · /trip · /help"
+        "/save · /list · /find · /trip · /help\n\n"
+        "Or send me a photo of a business card or Telegram QR."
     )
 
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """For now, ack photo forwards — QR/OCR comes in Phase 2."""
+    """Image handler — try QR first (instant), then paper card OCR (slower)."""
     user_id = await _resolve_user_id(update, context)
     log_usage(user_id, "photo_received")
-    await update.message.reply_text(
-        "Got the image. QR + OCR auto-save is coming in the next update.\n\n"
-        "For now, use /save to add contacts manually."
+
+    photos = update.message.photo
+    if not photos:
+        await update.message.reply_text(
+            "Send me a photo of a Telegram QR or a paper business card."
+        )
+        return
+
+    processing_msg = await update.message.reply_text("🔍 Reading...")
+
+    try:
+        # Download highest-resolution version
+        photo_file = await photos[-1].get_file()
+        photo_bytes = bytes(await photo_file.download_as_bytearray())
+
+        # Path 1: QR code (instant)
+        qr_data = try_decode_qr(photo_bytes)
+        if qr_data:
+            await _save_from_qr(update, context, qr_data, user_id, processing_msg)
+            return
+
+        # Path 2: Paper card OCR (3-8s)
+        await processing_msg.edit_text("🔍 No QR found. Running OCR on the card...")
+        extracted = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: try_ocr_card(photo_bytes)
+        )
+        if extracted and len(extracted) >= 2:
+            await _show_ocr_preview(update, context, extracted, user_id)
+        else:
+            await processing_msg.edit_text(
+                "Couldn't read this image. Try:\n"
+                "• A clearer photo with better lighting\n"
+                "• Flat-lay the card (no curves)\n"
+                "• Or /save to add manually"
+            )
+    except Exception as e:
+        log.exception("photo_handler failed")
+        await processing_msg.edit_text(f"Error: {e}")
+
+
+async def _save_from_qr(update, context, qr_url, user_id, processing_msg):
+    """Save contact from Telegram QR code. Auto-saves, no confirmation."""
+    handle = parse_telegram_qr(qr_url)
+    if not handle:
+        await processing_msg.edit_text(
+            f"📷 Got a QR but it's not a Telegram QR:\n{qr_url[:200]}"
+        )
+        return
+
+    try:
+        chat = await context.bot.get_chat(f"@{handle}")
+    except Exception as e:
+        log.warning("getChat(@%s) failed: %s", handle, e)
+        await processing_msg.edit_text(
+            f"Couldn't find @{handle} on Telegram. They may have a private account."
+        )
+        return
+
+    display_name = chat.full_name or chat.title or handle
+    contact_id = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: save_contact(
+            user_id=user_id,
+            name=display_name,
+            handle=handle,
+            telegram_user_id=chat.id,
+            source="telegram_qr",
+        ),
     )
+    log_usage(user_id, "save_from_qr", f"contact_id={contact_id} handle={handle}")
+    await processing_msg.edit_text(
+        f"✓ Saved from QR:\n\n"
+        f"{display_name}\n"
+        f"@{handle}"
+    )
+
+
+async def _show_ocr_preview(update, context, extracted, user_id):
+    """Show OCR preview and ask for confirmation."""
+    context.user_data["pending_card"] = extracted
+
+    lines = ["📇 I read this card:\n"]
+    for field, label in [
+        ("name", "Name"),
+        ("title", "Title"),
+        ("company", "Company"),
+        ("email", "Email"),
+        ("phone", "Phone"),
+        ("handle", "Telegram"),
+    ]:
+        if extracted.get(field):
+            lines.append(f"{label}: {extracted[field]}")
+    lines.append("\nReply YES to save.")
+    lines.append("Or fix a field, e.g.  name: John Smith")
+    lines.append("Or NO to discard.")
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def _confirm_ocr_save(update, context):
+    """Handle YES / edit / NO reply to OCR confirmation."""
+    extracted = context.user_data.get("pending_card")
+    if not extracted:
+        return False
+
+    text = update.message.text.strip()
+
+    # YES → save
+    if text.lower() in ("yes", "y", "save"):
+        user_id = context.user_data["user_id"]
+        contact_id = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: save_contact(
+                user_id=user_id,
+                name=extracted.get("name") or "Unknown",
+                handle=extracted.get("handle"),
+                company=extracted.get("company"),
+                title=extracted.get("title"),
+                email=extracted.get("email"),
+                phone=extracted.get("phone"),
+                source="paper_ocr",
+            ),
+        )
+        log_usage(user_id, "save_from_ocr", f"contact_id={contact_id}")
+        context.user_data.pop("pending_card", None)
+        await update.message.reply_text(
+            f"✓ Saved.\n\nUse /save for another, /list to see all, /find to search."
+        )
+        return True
+
+    # NO → discard
+    if text.lower() in ("no", "n", "cancel", "discard"):
+        context.user_data.pop("pending_card", None)
+        await update.message.reply_text(
+            "Discarded. Try a different photo or /save to add manually."
+        )
+        return True
+
+    # Edit: "field: value" pattern
+    match = re.match(r"(\w+)\s*:\s*(.+)", text, re.IGNORECASE)
+    if match:
+        field, value = match.groups()
+        field = field.strip().lower()
+        if field in ("name", "title", "company", "email", "phone", "handle", "telegram"):
+            extracted[field if field != "telegram" else "handle"] = value.strip()
+            context.user_data["pending_card"] = extracted
+            await update.message.reply_text(
+                f"Updated {field}.\n\nReply YES to save, or keep editing."
+            )
+            return True
+
+    # Default
+    await update.message.reply_text(
+        "Reply YES to save, NO to discard.\n"
+        "Or fix a field: name: John Smith, email: j@x.com"
+    )
+    return True
 
 
 async def post_init(application: Application) -> None:
