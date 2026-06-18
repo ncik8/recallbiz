@@ -4,11 +4,10 @@
 # Nixpacks (Railpack) uses mise for Python install. mise verifies GitHub artifact attestations
 # by default — disable that because some Python versions lack attestations.
 #
-# aptPkgs: tesseract-ocr binary (paper card OCR). pyzbar was replaced with opencv-python-headless
-# which has no system deps (avoids the libzbar issue from the 2-stage Nixpacks build).
+# QR decode uses opencv-python-headless (pure Python wheel). Paper card OCR uses MiniMax
+# vision API (no system tesseract needed).
 [phases.setup]
 nixPkgs = ["python312"]
-aptPkgs = ["tesseract-ocr"]
 
 [variables]
 MISE_PYTHON_GITHUB_ATTESTATIONS = "false"

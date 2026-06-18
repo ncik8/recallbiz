@@ -260,6 +260,18 @@ def count_trip_contacts(event_id: str) -> int:
     return res.count or 0
 
 
+def update_contact_notes(contact_id: str, notes: str) -> bool:
+    """Update notes on a contact. Returns True on success."""
+    client = get_client()
+    res = (
+        client.table("contacts")
+        .update({"notes": notes})
+        .eq("id", contact_id)
+        .execute()
+    )
+    return bool(res.data)
+
+
 def get_filtered_contacts(user_id: str, filter_type: str, filter_value: str) -> list:
     """For /send command. Returns [{id, name, handle, telegram_user_id}, ...]."""
     client = get_client()

@@ -16,9 +16,10 @@ from telegram.ext import (
 from db import (
     init_db, log_usage, save_contact, search_contacts, list_recent,
     set_active_trip, get_active_trip, deactivate_trip, count_trip_contacts,
-    get_or_create_user, get_filtered_contacts,
+    get_or_create_user, get_filtered_contacts, update_contact_notes,
 )
-from ocr import try_decode_qr, try_ocr_card, parse_telegram_qr
+from ocr import try_decode_qr, parse_telegram_qr
+from ai import extract_card_from_image, handle_conversation
 
 
 async def _resolve_user_id(update, context) -> str:
@@ -361,18 +362,31 @@ async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """If user is mid-save or confirming OCR, route. Otherwise echo."""
+    """Route non-command text: pending states first, else AI conversation."""
+    if context.user_data.get("pending_note_for"):
+        await _save_note(update, context)
+        return
     if context.user_data.get("pending_card"):
         await _confirm_ocr_save(update, context)
         return
     if context.user_data.get("save_step"):
         await _handle_save_message(update, context)
         return
-    await update.message.reply_text(
-        "I don't understand text yet. Use a command:\n"
-        "/save · /list · /find · /trip · /help\n\n"
-        "Or send me a photo of a business card or Telegram QR."
-    )
+
+    # No pending state — route to MiniMax conversational layer
+    user_id = context.user_data.get("user_id") or await _resolve_user_id(update, context)
+    user_text = update.message.text.strip()
+    if not user_text:
+        return
+    processing = await update.message.reply_text("🤔 Thinking...")
+    try:
+        reply = await handle_conversation(user_id, user_text)
+        await processing.edit_text(reply or "Done.")
+    except Exception as e:
+        log.exception("handle_conversation failed")
+        await processing.edit_text(
+            f"Sorry, I had trouble: {e}\n\nTry /list or /help for commands."
+        )
 
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -400,12 +414,10 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _save_from_qr(update, context, qr_data, user_id, processing_msg)
             return
 
-        # Path 2: Paper card OCR (3-8s)
-        await processing_msg.edit_text("🔍 No QR found. Running OCR on the card...")
-        extracted = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: try_ocr_card(photo_bytes)
-        )
-        if extracted and len(extracted) >= 2:
+        # Path 2: Paper card OCR via MiniMax vision (3-8s)
+        await processing_msg.edit_text("🔍 No QR found. Reading the card with AI...")
+        extracted = await extract_card_from_image(photo_bytes)
+        if extracted and (extracted.get("name") or extracted.get("email") or extracted.get("phone")):
             await _show_ocr_preview(update, context, extracted, user_id)
         else:
             await processing_msg.edit_text(
@@ -486,7 +498,7 @@ async def _confirm_ocr_save(update, context):
 
     text = update.message.text.strip()
 
-    # YES → save
+    # YES → save, then offer to add a note
     if text.lower() in ("yes", "y", "save"):
         user_id = context.user_data["user_id"]
         contact_id = await asyncio.get_event_loop().run_in_executor(
@@ -504,8 +516,14 @@ async def _confirm_ocr_save(update, context):
         )
         log_usage(user_id, "save_from_ocr", f"contact_id={contact_id}")
         context.user_data.pop("pending_card", None)
+        # Offer to add a note — set state for next text message
+        context.user_data["pending_note_for"] = {
+            "contact_id": contact_id,
+            "name": extracted.get("name") or "this contact",
+        }
         await update.message.reply_text(
-            f"✓ Saved.\n\nUse /save for another, /list to see all, /find to search."
+            f"✓ Saved {extracted.get('name') or 'contact'}.\n\n"
+            f"Want to add a note? Just type it, or say 'skip'."
         )
         return True
 
@@ -536,6 +554,44 @@ async def _confirm_ocr_save(update, context):
         "Or fix a field: name: John Smith, email: j@x.com"
     )
     return True
+
+
+async def _save_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save a note to a just-created contact."""
+    pending = context.user_data.get("pending_note_for")
+    if not pending:
+        return
+    contact_id = pending["contact_id"]
+    contact_name = pending["name"]
+    text = update.message.text.strip()
+
+    # Skip
+    if text.lower() in ("skip", "no", "n", "cancel", "done"):
+        context.user_data.pop("pending_note_for", None)
+        await update.message.reply_text(
+            "OK, no note added.\n\nUse /save for another, /list to see all."
+        )
+        return
+
+    # Append to existing notes
+    from db import get_client as _gc
+    def _append():
+        client = _gc()
+        existing = client.table("contacts").select("notes").eq("id", contact_id).maybe_single().execute()
+        prev = (existing.data or {}).get("notes") or ""
+        new_notes = (prev + "\n" + text).strip() if prev else text
+        return client.table("contacts").update({"notes": new_notes}).eq("id", contact_id).execute()
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _append)
+    context.user_data.pop("pending_note_for", None)
+    if result.data:
+        log_usage(context.user_data.get("user_id"), "note_added", f"contact_id={contact_id}")
+        await update.message.reply_text(
+            f"✓ Note saved to {contact_name}.\n\n"
+            f"Use /list to see all, /find <name> to search."
+        )
+    else:
+        await update.message.reply_text("Failed to save the note. Try again?")
 
 
 async def post_init(application: Application) -> None:

@@ -1,0 +1,417 @@
+"""MiniMax AI integration for RecallBiz bot.
+
+Two purposes:
+1. OCR — extract structured business card fields from images
+2. Conversational — natural-language understanding with function calling
+
+Uses MiniMax-M3 model. Reads MINIMAX_API_KEY from env.
+"""
+import os
+import re
+import json
+import logging
+import base64
+from typing import Optional, List, Dict, Any
+
+import httpx
+
+log = logging.getLogger(__name__)
+
+MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY")
+MINIMAX_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
+MINIMAX_CHAT_URL = os.environ.get("MINIMAX_CHAT_URL")
+MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
+
+
+def _chat_url() -> str:
+    """Resolve the chat completions URL.
+
+    Precedence: MINIMAX_CHAT_URL > MINIMAX_BASE_URL + /chat/completions > default.
+    """
+    if MINIMAX_CHAT_URL:
+        return MINIMAX_CHAT_URL
+    return MINIMAX_BASE_URL.rstrip("/") + "/chat/completions"
+
+
+async def call_minimax(
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict]] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.3,
+    timeout: float = 60.0,
+) -> Dict[str, Any]:
+    """Make an async chat completion call."""
+    if not MINIMAX_API_KEY:
+        raise RuntimeError("MINIMAX_API_KEY not set")
+    headers = {
+        "Authorization": f"Bearer {MINIMAX_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model or MINIMAX_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(_chat_url(), headers=headers, json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+def _parse_json_from_text(text: str) -> Optional[dict]:
+    """Extract JSON object from model output (handles ```json blocks, leading prose)."""
+    text = text.strip()
+    # Strip code fences
+    fence = re.match(r"^```(?:json)?\s*(\{.*?\})\s*```$", text, re.DOTALL)
+    if fence:
+        try:
+            return json.loads(fence.group(1))
+        except Exception:
+            pass
+    # First balanced { ... } block
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start:i + 1]
+                try:
+                    return json.loads(candidate)
+                except Exception:
+                    return None
+    return None
+
+
+async def extract_card_from_image(image_bytes: bytes) -> Optional[dict]:
+    """Use MiniMax vision to extract structured business card fields.
+
+    Returns: {name, title, company, email, phone, handle} or None.
+    Drops fields that are None/empty.
+    """
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You extract structured data from business card images. "
+                "Return ONLY a JSON object with these keys: name, title, company, "
+                "email, phone, handle (Telegram @username without @). "
+                "Use null for fields you can't read. Don't guess."
+            ),
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Extract business card fields from this image."},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                },
+            ],
+        },
+    ]
+    try:
+        resp = await call_minimax(messages, temperature=0.1)
+        content = resp["choices"][0]["message"]["content"] or ""
+        log.info("MiniMax OCR raw: %s", content[:300])
+        parsed = _parse_json_from_text(content)
+        if not parsed:
+            return None
+        # Drop empty/null fields
+        return {k: v for k, v in parsed.items() if v}
+    except Exception as e:
+        log.warning("MiniMax OCR failed: %s", e)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Function-calling tools for the conversational layer
+# ---------------------------------------------------------------------------
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_contacts",
+            "description": "Show the user's most recent contacts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max contacts to return (default 10)",
+                        "default": 10,
+                    }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_contact",
+            "description": "Search contacts by name, company, or notes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search term"}
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_note",
+            "description": (
+                "Add a note to an existing contact. The name can be approximate — "
+                "we'll fuzzy-match against the user's contacts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Contact's name or partial name"},
+                    "note": {"type": "string", "description": "The note text"},
+                },
+                "required": ["name", "note"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_contact",
+            "description": "Save a new contact manually.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "company": {"type": "string"},
+                    "title": {"type": "string"},
+                    "email": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "handle": {"type": "string", "description": "Telegram handle without @"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "start_trip",
+            "description": "Set the active trip/event for auto-tagging new saves.",
+            "parameters": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_trip",
+            "description": "Turn off the active trip (no new saves will be tagged).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+
+SYSTEM_PROMPT = """You're RecallBiz, a Telegram bot that manages business contacts.
+
+When the user sends a message without a /command, figure out what they want:
+- Call a tool if there's a clear action.
+- Reply briefly with text (1-2 sentences) for conversational replies.
+
+Tone: Direct, helpful, no fluff. Don't repeat menus. Be concise.
+
+User context (refreshed each turn):
+- User ID: {user_id}
+- Recent contacts: {recent_contacts}
+- Active trip: {active_trip}
+
+Guidelines:
+- "list my contacts", "show contacts", "who do I know" → list_contacts
+- "find X", "where's X", "do I know X" → find_contact(query=X)
+- "add a note to X: ..." or "note for X: ..." → add_note(name=X, note=...)
+- "save/add X ...", "met Y from Z" → add_contact with the parsed fields
+- "I'm at TOKEN2049", "starting trip X" → start_trip(name=X)
+- "stop trip", "ending trip" → stop_trip
+- Anything else: short helpful reply, never invent contact info
+
+If a name is ambiguous (multiple matches), say so and ask which one.
+Never make up phone/email/handle values — only use what the user typed."""
+
+
+async def build_system_prompt(user_id: str) -> str:
+    """Build the system prompt with current user context."""
+    from db import list_recent, get_active_trip
+
+    # These calls are sync but fast; use run_in_executor for safety
+    import asyncio
+    loop = asyncio.get_event_loop()
+    recent = await loop.run_in_executor(None, lambda: list_recent(user_id, limit=8))
+    trip = await loop.run_in_executor(None, lambda: get_active_trip(user_id))
+
+    if recent:
+        recent_str = "\n".join(
+            f"- {c.get('name')} ({c.get('company') or 'no company'})"
+            + (f" @{c.get('handle')}" if c.get("handle") else "")
+            for c in recent
+        )
+    else:
+        recent_str = "(none yet)"
+
+    trip_str = trip.get("name") if trip else "(none)"
+
+    return SYSTEM_PROMPT.format(
+        user_id=user_id,
+        recent_contacts=recent_str,
+        active_trip=trip_str,
+    )
+
+
+async def execute_tool(user_id: str, name: str, args: dict) -> dict:
+    """Execute a tool call against the DB. Returns result dict for MiniMax."""
+    import asyncio
+    from db import (
+        list_recent, search_contacts, save_contact,
+        set_active_trip, deactivate_trip, update_contact_notes,
+    )
+    loop = asyncio.get_event_loop()
+
+    if name == "list_contacts":
+        limit = int(args.get("limit", 10))
+        contacts = await loop.run_in_executor(None, lambda: list_recent(user_id, limit=limit))
+        return {"count": len(contacts), "contacts": contacts}
+
+    if name == "find_contact":
+        q = args.get("query", "").strip()
+        if not q:
+            return {"error": "missing query"}
+        contacts = await loop.run_in_executor(
+            None, lambda: search_contacts(user_id, q, limit=10)
+        )
+        return {"count": len(contacts), "matches": contacts}
+
+    if name == "add_note":
+        target_name = args.get("name", "").strip()
+        note_text = args.get("note", "").strip()
+        if not target_name or not note_text:
+            return {"error": "missing name or note"}
+        matches = await loop.run_in_executor(
+            None, lambda: search_contacts(user_id, target_name, limit=5)
+        )
+        if not matches:
+            return {"error": f"No contact found matching '{target_name}'"}
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "candidates": [{"id": m["id"], "name": m["name"]} for m in matches],
+            }
+        contact = matches[0]
+        existing = contact.get("notes") or ""
+        new_notes = (existing + "\n" + note_text).strip() if existing else note_text
+        ok = await loop.run_in_executor(
+            None, lambda: update_contact_notes(contact["id"], new_notes)
+        )
+        if ok:
+            return {
+                "success": True,
+                "contact_id": contact["id"],
+                "name": contact["name"],
+                "note": note_text,
+            }
+        return {"error": "DB update failed"}
+
+    if name == "add_contact":
+        clean = {k: v for k, v in args.items() if v}
+        if "name" not in clean:
+            return {"error": "name is required"}
+        contact_id = await loop.run_in_executor(
+            None,
+            lambda: save_contact(
+                user_id=user_id,
+                name=clean["name"],
+                handle=clean.get("handle"),
+                company=clean.get("company"),
+                title=clean.get("title"),
+                email=clean.get("email"),
+                phone=clean.get("phone"),
+                notes=clean.get("notes"),
+                source="manual",
+            ),
+        )
+        return {"success": True, "contact_id": contact_id, "name": clean["name"]}
+
+    if name == "start_trip":
+        name_str = args.get("name", "").strip()
+        if not name_str:
+            return {"error": "missing trip name"}
+        await loop.run_in_executor(None, lambda: set_active_trip(user_id, name_str))
+        return {"success": True, "trip_name": name_str}
+
+    if name == "stop_trip":
+        await loop.run_in_executor(None, lambda: deactivate_trip(user_id))
+        return {"success": True}
+
+    return {"error": f"Unknown tool: {name}"}
+
+
+async def handle_conversation(user_id: str, user_text: str) -> str:
+    """Process a natural-language user message via MiniMax + function calling.
+
+    Returns the assistant's final text response.
+    """
+    system = await build_system_prompt(user_id)
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_text},
+    ]
+
+    # First call: may include tool_calls
+    try:
+        resp = await call_minimax(messages, tools=TOOLS)
+    except Exception as e:
+        log.exception("MiniMax conversation failed")
+        return f"Sorry, I had trouble thinking about that: {e}"
+
+    msg = resp["choices"][0]["message"]
+
+    # If no tool calls, just return the text
+    if not msg.get("tool_calls"):
+        return msg.get("content") or "I'm not sure how to help with that."
+
+    # Execute tool calls
+    messages.append(msg)
+    for tc in msg["tool_calls"]:
+        try:
+            args = json.loads(tc["function"]["arguments"])
+        except Exception:
+            args = {}
+        result = await execute_tool(user_id, tc["function"]["name"], args)
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc["id"],
+            "content": json.dumps(result, default=str),
+        })
+
+    # Second call: get natural-language summary
+    try:
+        resp2 = await call_minimax(messages, tools=TOOLS)
+        return resp2["choices"][0]["message"].get("content") or "Done."
+    except Exception as e:
+        log.exception("MiniMax follow-up call failed")
+        return "Done — but I couldn't write a summary. Try /list to see the result."
