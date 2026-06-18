@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to survive a 500-person crypto event without losing a single contact — recallbiz Blog</title>
+<meta name="description" content="The system we built for Token2049 — paper cards, Telegram QRs, and the 30-second introduction that actually works.">
+<meta property="og:title" content="How to survive a 500-person crypto event without losing a single contact">
+<meta property="og:description" content="The system we built for Token2049 — paper cards, Telegram QRs, and the 30-second introduction that actually works.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://recallbiz.xyz/blog/post-event-survival">
+<meta property="article:published_time" content="2026-06-15">
+<meta property="article:author" content="Nick Williams">
+<link rel="canonical" href="https://recallbiz.xyz/blog/post-event-survival">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "How to survive a 500-person crypto event without losing a single contact",
+  "description": "The system we built for Token2049 — paper cards, Telegram QRs, and the 30-second introduction that actually works.",
+  "author": {
+    "@type": "Person",
+    "name": "Nick Williams",
+    "url": "https://recallbiz.xyz"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "recallbiz",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://recallbiz.xyz/logo.png"
+    }
+  },
+  "datePublished": "2026-06-15",
+  "dateModified": "2026-06-15",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://recallbiz.xyz/blog/post-event-survival"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0e;
+  --surface: #16161e;
+  --surface-2: #1f1f28;
+  --border: #2a2a35;
+  --border-soft: rgba(232,232,238,.08);
+  --text: #e8e8ee;
+  --text-2: rgba(232,232,238,.65);
+  --text-3: rgba(232,232,238,.4);
+  --accent: #00ff88;
+  --accent-dim: rgba(0,255,136,.15);
+  --accent-2: #00d4ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-weight: 300;
+  font-size: 17px;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(10,10,14,.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 500;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none;
+}
+.logo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.nav-links { display: flex; gap: 32px; list-style: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.nav-links a { color: var(--text-2); text-decoration: none; transition: color .2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-links a.active { color: var(--accent); }
+.btn-nav { font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 16px; background: var(--accent); color: #0a0a0a; border: none; border-radius: 6px; text-decoration: none; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); }
+
+article {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 80px 32px;
+}
+.back-link {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-3);
+  text-decoration: none;
+  margin-bottom: 48px;
+  display: inline-block;
+}
+.back-link:hover { color: var(--accent); }
+
+.post-header { margin-bottom: 64px; }
+.post-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.post-header h1 {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 200;
+  line-height: 1.15;
+  letter-spacing: -.03em;
+  margin-bottom: 24px;
+}
+.post-header h1 em { font-style: italic; color: var(--text-2); }
+.post-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex; gap: 16px;
+}
+
+article p { margin-bottom: 24px; line-height: 1.75; }
+article h2 {
+  font-size: 28px; font-weight: 400;
+  letter-spacing: -.02em;
+  margin: 56px 0 20px;
+}
+article h3 {
+  font-size: 20px; font-weight: 500;
+  letter-spacing: -.01em;
+  margin: 40px 0 12px;
+}
+article blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 8px 0 8px 20px;
+  margin: 32px 0;
+  color: var(--text-2);
+  font-style: italic;
+}
+article ul, article ol {
+  margin: 16px 0 24px 24px;
+}
+article li { margin-bottom: 8px; line-height: 1.7; }
+article strong { color: var(--text); font-weight: 500; }
+article a { color: var(--accent); }
+article code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.cta-box {
+  margin: 64px 0 32px;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+.cta-box h3 { font-size: 22px; font-weight: 400; margin: 0 0 12px; }
+.cta-box p { font-size: 15px; color: var(--text-2); margin-bottom: 24px; }
+.btn-cta {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.footer {
+  padding: 48px 32px 32px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.footer a { color: var(--text-3); }
+
+@media (max-width: 768px) {
+  .nav { padding: 16px 20px; }
+  .nav-links { display: none; }
+  article { padding: 48px 20px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo"><span class="logo-dot"></span>recallbiz</a>
+  <ul class="nav-links">
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/#pricing">Pricing</a></li>
+    <li><a href="/blog" class="active">Blog</a></li>
+    <li><a href="/#faq">FAQ</a></li>
+  </ul>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a class="btn-nav" href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Open Bot →</a>
+    <div class="avatar">N</div>
+  </div>
+</nav>
+
+<article>
+
+  <a class="back-link" href="/blog">← All posts</a>
+
+  <header class="post-header">
+    <div class="post-label">Networking</div>
+    <h1>How to survive a 500-person crypto event without losing a single contact</h1>
+    <div class="post-meta">
+      <span>Nick Williams</span>
+      <span>·</span>
+      <span>2026-06-15</span>
+      <span>·</span>
+      <span>8 min read</span>
+    </div>
+  </header>
+
+  <p>You walked into Token2049 at 9am. By 6pm you've met 60 people, taken 12 paper business cards, scanned 30 Telegram QRs, and your pockets are full. By the time you get home, you remember maybe 5 of those names. By next week, you remember 1.</p>
+
+  <p>This is the death of most crypto networking. The introduction happens, the contact gets saved in some app you never open again, and the relationship dies before it starts.</p>
+
+  <h2>The system we built</h2>
+
+  <p>For Token2049 this year, we ran an experiment. Every time someone shared a Telegram QR with us, we forwarded it to <code>@RecallBizBot</code> within 5 seconds. By the end of the event, we had:</p>
+
+  <ul>
+    <li>247 contacts saved, each tagged with the booth/afterparty where we met them</li>
+    <li>47 contacts from one specific talk (the L2 sequencer panel)</li>
+    <li>Searchable database by company, by role, by what we talked about</li>
+    <li>Follow-up drafts ready within 24 hours of the event ending</li>
+  </ul>
+
+  <p>Three weeks later, we still remember everyone. That's the point.</p>
+
+  <h2>The 30-second introduction</h2>
+
+  <p>The hardest part isn't the tool — it's the introduction. After 50 introductions at a crypto event, your brain goes into autopilot. You say "Hi, I'm X, I work on Y" and immediately forget the other person's name.</p>
+
+  <blockquote>The trick: anchor on one specific thing they said. Not their company. Not their role. Something they claimed, something they asked, something they disagreed with.</blockquote>
+
+  <p>Examples:</p>
+
+  <ul>
+    <li>"You're the one who thinks ZK rollups are overhyped, right?"</li>
+    <li>"You asked me about L2 sequencer decentralisation at the panel"</li>
+    <li>"You disagreed with the restaking pitch — why?"</li>
+  </ul>
+
+  <p>That single anchor is enough to recall the whole conversation when you see their name in your database three weeks later.</p>
+
+  <h2>The forwarding habit</h2>
+
+  <p>The second trick is making the "save this contact" step take less than 5 seconds. If it takes 30 seconds, you stop doing it after the 10th person.</p>
+
+  <p>That's why recallbiz lives in Telegram. You don't open an app. You don't type a name into a form. You forward an image. Three taps. Done.</p>
+
+  <h2>The follow-up</h2>
+
+  <p>Database collected. Now what?</p>
+
+  <p>The 24-hour window after an event is critical. If you message people within a day, your reply rate is 40-60%. If you wait a week, it's 10-15%.</p>
+
+  <p>But 247 follow-ups is too many to write by hand. Even if each one takes 30 seconds, that's 2 hours of writing.</p>
+
+  <p>That's why the next iteration of recallbiz drafts follow-ups for you. You open the bot after the event, tap "draft follow-ups for Token2049", and it produces a 3-sentence message for each contact that references what you talked about. You review, edit the 5% that need personalisation, send the rest.</p>
+
+  <h2>Try it</h2>
+
+  <p>Open <a href="https://t.me/RecallBizBot" target="_blank" rel="noopener">@RecallBizBot</a>, type <code>/trip set Token2049</code>, and forward one Telegram QR from someone you just met. That's the system. That's the entire system.</p>
+
+  <div class="cta-box">
+    <h3>Want to never lose a contact again?</h3>
+    <p>Forward a QR to @RecallBizBot right now. See how fast it saves.</p>
+    <a class="btn-cta" href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Open @RecallBizBot →</a>
+  </div>
+
+</article>
+
+<footer class="footer">
+  © 2026 recallbiz · <a href="/" style="color: var(--text-3);">Home</a> · <a href="/blog" style="color: var(--text-3);">All posts</a>
+</footer>
+
+</body>
+</html>

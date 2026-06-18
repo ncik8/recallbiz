@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>recallbiz — Your AI business network PA, in one tap.</title>
+<meta name="description" content="AI-powered Telegram business card scanner + personal CRM. Forward any Telegram QR to @RecallBizBot, ask naturally 'find me investors' or 'who did I meet at Polychain'. Free to start.">
+<meta property="og:title" content="recallbiz — Your AI business network PA, in one tap.">
+<meta property="og:description" content="AI-powered Telegram business card scanner + personal CRM. Forward any Telegram QR, ask naturally, get AI follow-up drafts.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://recallbiz.xyz">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="recallbiz — Your AI business network PA, in one tap.">
+<meta name="twitter:description" content="AI-powered Telegram business card scanner + personal CRM. Forward any Telegram QR, ask naturally.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0e;
+  --surface: #16161e;
+  --surface-2: #1f1f28;
+  --border: #2a2a35;
+  --border-soft: rgba(232,232,238,.08);
+  --text: #e8e8ee;
+  --text-2: rgba(232,232,238,.65);
+  --text-3: rgba(232,232,238,.4);
+  --accent: #00ff88;
+  --accent-dim: rgba(0,255,136,.15);
+  --accent-2: #00d4ff;
+  --accent-2-dim: rgba(0,212,255,.15);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* NAV */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(10,10,14,.7);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 500; color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none;
+}
+.logo-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.nav-links {
+  display: flex; gap: 32px; list-style: none;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.nav-links a { color: var(--text-2); text-decoration: none; transition: color .2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-cta { display: flex; align-items: center; gap: 16px; }
+.btn-nav {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; padding: 8px 16px;
+  background: var(--accent); color: #0a0a0a;
+  border: none; border-radius: 6px;
+  cursor: pointer; letter-spacing: -.01em;
+  text-decoration: none;
+}
+.btn-nav:hover { opacity: .85; }
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-3);
+}
+
+/* HERO */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 120px 32px 80px;
+  overflow: hidden;
+}
+.hero-bg {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 50%, rgba(0,255,136,.04) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 60% at 30% 60%, rgba(0,212,255,.03) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 50% at 70% 30%, rgba(0,255,136,.02) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-bg::before {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(232,232,238,.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232,232,238,.02) 1px, transparent 1px);
+  background-size: 80px 80px;
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, black 30%, transparent 80%);
+}
+
+.chip {
+  position: absolute;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-radius: 999px;
+  display: flex; align-items: center; gap: 8px;
+  white-space: nowrap;
+  animation: float 8s ease-in-out infinite;
+}
+.chip-dot { width: 4px; height: 4px; border-radius: 50%; }
+.chip-dot.green { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.chip-dot.cyan { background: var(--accent-2); box-shadow: 0 0 6px var(--accent-2); }
+.chip-dot.gray { background: var(--text-3); }
+.chip-name { color: var(--text); }
+.chip-meta { color: var(--text-3); }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+.chip-1 { top: 18%; left: 8%; animation-delay: 0s; }
+.chip-2 { top: 22%; right: 10%; animation-delay: 1.5s; }
+.chip-3 { top: 45%; left: 5%; animation-delay: 3s; }
+.chip-4 { top: 48%; right: 7%; animation-delay: 4.5s; }
+.chip-5 { top: 70%; left: 12%; animation-delay: 2s; }
+.chip-6 { top: 73%; right: 14%; animation-delay: 5s; }
+
+.hero-center { position: relative; max-width: 920px; text-align: center; z-index: 2; }
+.hero-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 32px;
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(22,22,30,.4);
+}
+.hero-eyebrow::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+.hero h1 {
+  font-size: clamp(48px, 7vw, 96px);
+  font-weight: 200; line-height: 1.05;
+  letter-spacing: -.03em; margin-bottom: 32px;
+}
+.hero h1 em { font-style: italic; font-weight: 200; color: var(--text-2); }
+.hero h1 .accent { color: var(--accent); font-weight: 300; }
+.hero-sub {
+  font-size: 18px; color: var(--text-2);
+  max-width: 620px; margin: 0 auto 48px;
+  line-height: 1.6;
+}
+.hero-sub strong { color: var(--accent); font-weight: 400; }
+.hero-ctas {
+  display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
+  margin-bottom: 64px;
+}
+.btn-hero-primary {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; padding: 16px 32px;
+  background: var(--accent); color: #0a0a0a;
+  border: none; border-radius: 8px;
+  cursor: pointer; letter-spacing: -.01em;
+  text-decoration: none; font-weight: 500;
+  transition: all .2s;
+}
+.btn-hero-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,255,136,.2); }
+.btn-hero-secondary {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; padding: 16px 32px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; letter-spacing: -.01em;
+  text-decoration: none; transition: all .2s;
+}
+.btn-hero-secondary:hover { background: var(--surface-2); border-color: var(--text-3); }
+
+.scroll-indicator {
+  position: absolute; bottom: 40px; left: 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-3);
+  letter-spacing: -.01em;
+  display: flex; align-items: center; gap: 12px;
+}
+.scroll-indicator::before {
+  content: "↓";
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border: 1px solid var(--border); border-radius: 50%;
+  color: var(--accent);
+}
+.brand-bar {
+  position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 48px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-3);
+  letter-spacing: -.01em; opacity: .6;
+}
+.brand-bar-item { display: flex; align-items: center; gap: 8px; }
+
+/* SECTIONS */
+.section { padding: 120px 32px; max-width: 1200px; margin: 0 auto; }
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 24px;
+}
+.section h2 {
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 200; line-height: 1.15;
+  letter-spacing: -.03em;
+  margin-bottom: 24px;
+  max-width: 800px;
+}
+.section h2 em { font-style: italic; font-weight: 200; color: var(--text-2); }
+.section-sub {
+  font-size: 17px; color: var(--text-2);
+  max-width: 560px; line-height: 1.6;
+  margin-bottom: 80px;
+}
+
+/* HOW IT WORKS */
+.steps {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 32px; margin-top: 80px;
+}
+.step {
+  position: relative; padding: 32px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.step-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--accent);
+  margin-bottom: 16px; letter-spacing: -.01em;
+}
+.step h3 { font-size: 20px; font-weight: 400; margin-bottom: 8px; }
+.step p { font-size: 14px; color: var(--text-2); line-height: 1.6; }
+.step p code {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--surface-2);
+  padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+/* AI SECTION */
+.ai-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  margin-top: 80px;
+}
+.ai-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  transition: all .3s;
+}
+.ai-card:hover { border-color: var(--accent); }
+.ai-card-icon {
+  width: 36px; height: 36px;
+  background: var(--accent-dim);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  color: var(--accent);
+}
+.ai-card h3 { font-size: 18px; font-weight: 400; margin-bottom: 8px; }
+.ai-card p { font-size: 14px; color: var(--text-2); line-height: 1.6; margin-bottom: 16px; }
+.ai-example {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.ai-example strong { color: var(--accent); font-weight: 400; }
+.ai-example em { color: var(--text-3); font-style: normal; }
+
+/* FEATURES */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+.feature-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 32px;
+  transition: all .3s;
+}
+.feature-card:hover { border-color: var(--accent); background: var(--surface-2); }
+.feature-icon {
+  width: 40px; height: 40px;
+  background: var(--accent-dim); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 18px; color: var(--accent);
+}
+.feature-card h3 { font-size: 18px; font-weight: 400; margin-bottom: 8px; }
+.feature-card p { font-size: 14px; color: var(--text-2); line-height: 1.6; }
+
+/* BUILT FOR */
+.use-cases {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 80px;
+}
+.use-case {
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.use-case-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+.use-case h3 { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.use-case p { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+
+/* BLACK BOOK */
+.blackbook {
+  margin-top: 80px;
+  padding: 48px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+.blackbook h3 {
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: 200; line-height: 1.2;
+  letter-spacing: -.03em; margin-bottom: 20px;
+}
+.blackbook h3 em { font-style: italic; color: var(--text-2); }
+.blackbook p { font-size: 15px; color: var(--text-2); line-height: 1.6; margin-bottom: 24px; }
+.blackbook ul {
+  list-style: none;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.blackbook li {
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft);
+  display: flex; align-items: center; gap: 12px;
+}
+.blackbook li::before {
+  content: "✓"; font-family: 'JetBrains Mono', monospace;
+  color: var(--accent); font-size: 13px;
+}
+.blackbook-visual {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.bb-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.bb-row:last-child { border-bottom: none; }
+.bb-name { color: var(--text); }
+.bb-tag { color: var(--accent); font-size: 10px; letter-spacing: .05em; }
+.bb-company { color: var(--text-3); }
+.bb-arrow {
+  color: var(--accent-2); font-size: 14px;
+  padding: 12px 0;
+  text-align: center;
+}
+
+/* PRICING */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px; margin-top: 80px;
+}
+.price-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 32px; position: relative;
+}
+.price-card.featured { border-color: var(--accent); background: var(--surface-2); }
+.price-card.featured::before {
+  content: "Most popular"; position: absolute;
+  top: -10px; left: 32px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase;
+  background: var(--accent); color: #0a0a0a;
+  padding: 4px 10px; border-radius: 4px;
+}
+.price-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 16px;
+}
+.price-amount {
+  font-size: 48px; font-weight: 200;
+  letter-spacing: -.03em; margin-bottom: 8px;
+}
+.price-amount span { font-size: 16px; color: var(--text-3); font-weight: 300; }
+.price-desc { font-size: 14px; color: var(--text-2); margin-bottom: 24px; }
+.price-features { list-style: none; font-size: 14px; margin-bottom: 24px; }
+.price-features li {
+  padding: 8px 0; color: var(--text-2);
+  display: flex; align-items: center; gap: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.price-features li::before {
+  content: "✓"; font-family: 'JetBrains Mono', monospace;
+  color: var(--accent); font-size: 12px;
+}
+.btn-price {
+  display: block; width: 100%;
+  padding: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; text-align: center;
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; text-decoration: none;
+  letter-spacing: -.01em; transition: all .2s;
+}
+.btn-price:hover { background: var(--surface-2); }
+.btn-price.primary {
+  background: var(--accent); color: #0a0a0a;
+  border-color: var(--accent); font-weight: 500;
+}
+
+/* CTA */
+.cta {
+  text-align: center;
+  padding: 160px 32px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  background: radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0,255,136,.06) 0%, transparent 60%);
+}
+.cta h2 {
+  font-size: clamp(40px, 6vw, 72px);
+  font-weight: 200; letter-spacing: -.03em;
+  line-height: 1.1; margin-bottom: 24px;
+}
+.cta h2 em { font-style: italic; color: var(--text-2); }
+.cta p { font-size: 17px; color: var(--text-2); margin-bottom: 48px; }
+
+/* FOOTER */
+.footer {
+  padding: 64px 32px 32px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.footer-grid {
+  display: grid; grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 48px; max-width: 1200px; margin: 0 auto;
+}
+.footer-brand {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 500;
+  color: var(--accent); margin-bottom: 12px;
+}
+.footer-tagline {
+  font-size: 13px; color: var(--text-3);
+  max-width: 280px; line-height: 1.6;
+}
+.footer-col h4 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-3); margin-bottom: 16px;
+  font-weight: 400;
+}
+.footer-col ul { list-style: none; }
+.footer-col li { margin-bottom: 8px; }
+.footer-col a { font-size: 13px; color: var(--text-2); text-decoration: none; transition: color .2s; }
+.footer-col a:hover { color: var(--text); }
+.footer-bottom {
+  max-width: 1200px; margin: 48px auto 0;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-soft);
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-3);
+  letter-spacing: -.01em;
+}
+
+@media (max-width: 768px) {
+  .nav { padding: 16px 20px; }
+  .nav-links { display: none; }
+  .hero { padding: 100px 20px 120px; }
+  .chip { display: none; }
+  .scroll-indicator, .brand-bar { display: none; }
+  .section { padding: 80px 20px; }
+  .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+  .footer-bottom { flex-direction: column; gap: 12px; text-align: center; }
+  .blackbook { grid-template-columns: 1fr; padding: 32px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo"><span class="logo-dot"></span>recallbiz</a>
+  <ul class="nav-links">
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#built-for">Built for</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+    <li><a href="/blog">Blog</a></li>
+  </ul>
+  <div class="nav-cta">
+    <a class="btn-nav" href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Open Bot →</a>
+    <div class="avatar">N</div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+
+  <div class="chip chip-1"><span class="chip-dot green"></span><span class="chip-name">@polychain_jane</span><span class="chip-meta">· 2h</span></div>
+  <div class="chip chip-2"><span class="chip-dot green"></span><span class="chip-name">@sequoia_k</span><span class="chip-meta">· 5h</span></div>
+  <div class="chip chip-3"><span class="chip-dot cyan"></span><span class="chip-name">@acme_sales_vp</span><span class="chip-meta">· 1d</span></div>
+  <div class="chip chip-4"><span class="chip-dot green"></span><span class="chip-name">@bloom_consult</span><span class="chip-meta">· 2d</span></div>
+  <div class="chip chip-5"><span class="chip-dot gray"></span><span class="chip-name">@ncik</span><span class="chip-meta">· 247 saved</span></div>
+  <div class="chip chip-6"><span class="chip-dot cyan"></span><span class="chip-name">@stripe_atlas</span><span class="chip-meta">· 3d</span></div>
+
+  <div class="hero-center">
+    <div class="hero-eyebrow">AI-native CRM · Telegram-native · Free to start</div>
+    <h1>Your <span class="accent">AI</span> business network <span class="accent">PA</span>, <em>in one tap.</em></h1>
+    <p class="hero-sub">Forward any Telegram QR to <strong style="color:var(--accent)">@RecallBizBot</strong>. Ask naturally — "find me investors" or "who did I meet at Polychain?" AI drafts your follow-ups.</p>
+    <div class="hero-ctas">
+      <a class="btn-hero-primary" href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Open Bot →</a>
+      <a class="btn-hero-secondary" href="#how">See how it works</a>
+    </div>
+  </div>
+
+  <div class="scroll-indicator">01/06 · Scroll</div>
+  <div class="brand-bar">
+    <div class="brand-bar-item">⌬ Telegram</div>
+    <div class="brand-bar-item">✦ AI-native</div>
+    <div class="brand-bar-item">✓ Free to start</div>
+    <div class="brand-bar-item">↗ You own your data</div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+  <div class="section-label">How it works</div>
+  <h2>Three steps.<br><em>One Telegram chat.</em></h2>
+  <p class="section-sub">No app to download. No new account to create. If you can message a friend on Telegram, you can use recallbiz.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <h3>Save any way</h3>
+      <p>Forward a Telegram QR image. Snap a paper business card. Type <code>/save</code>. The bot captures it and asks for context — what you talked about, what's the next step, anything personal.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <h3>Ask AI, not the search bar</h3>
+      <p>Skip keyword guessing. Type <em>"do I have any investors from Sequoia"</em> or <em>"who did I meet last week that I haven't followed up with"</em>. The bot interprets and answers in natural language.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <h3>Get drafts that sound like you</h3>
+      <p>Type <code>/followup Jane</code>. The AI uses your notes + the conversation context + their role to draft a 3-sentence follow-up that references what you actually talked about. No more cold outreach.</p>
+    </div>
+  </div>
+</section>
+
+<!-- AI SECTION -->
+<section class="section">
+  <div class="section-label">AI-native</div>
+  <h2>Ask your network.<br><em>In plain English.</em></h2>
+  <p class="section-sub">No SQL. No keyword guessing. No dropdown filters. Just ask the way you'd ask a colleague.</p>
+
+  <div class="ai-grid">
+    <div class="ai-card">
+      <div class="ai-card-icon">⌕</div>
+      <h3>Natural-language search</h3>
+      <p>Find anyone across your entire network by asking in plain English. Filters by company, role, tag, event, warmth — all interpreted automatically.</p>
+      <div class="ai-example">
+        <strong>You:</strong> do I have any investors in my list<br>
+        <em>Bot:</em> 6 investors saved. Top matches: @polychain_jane (Token2049), @sequoia_k (afterparty), @animoca_alice (panel)…
+      </div>
+    </div>
+    <div class="ai-card">
+      <div class="ai-card-icon">✎</div>
+      <h3>Follow-up drafts in your voice</h3>
+      <p>One command per draft. The AI uses your conversation notes, the contact's role, and your last interaction to write a follow-up that doesn't feel cold.</p>
+      <div class="ai-example">
+        <strong>You:</strong> /followup Jane<br>
+        <em>Bot:</em> "Hi Jane — great meeting at the afterparty. Sent the SDK whitepaper over. Eng team lead will reach out tomorrow. Open for a 30min call next week?"
+      </div>
+    </div>
+    <div class="ai-card">
+      <div class="ai-card-icon">⊡</div>
+      <h3>Auto-extract from any card</h3>
+      <p>Forward a photo of a paper business card. M3 vision pulls out name, company, title, email — bot confirms and saves. Or forward a Telegram QR for instant save.</p>
+      <div class="ai-example">
+        <strong>You:</strong> [forwards card photo]<br>
+        <em>Bot:</em> Found: Jane Doe, Partner at Polychain Capital. Save this? [✓ Save] [✎ Edit]
+      </div>
+    </div>
+    <div class="ai-card">
+      <div class="ai-card-icon">⊕</div>
+      <h3>Warm-intro matching</h3>
+      <p>Ask "do I know anyone at Sequoia who can intro me" — bot searches your full network and ranks by warm-path strength.</p>
+      <div class="ai-example">
+        <strong>You:</strong> who can intro me to someone at Sequoia<br>
+        <em>Bot:</em> 2 paths. Strongest: @sequoia_k — met 5h ago, discussed L2. Weaker: @vc_partner — tagged 'investor', knows someone.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="section">
+  <div class="section-label">What's inside</div>
+  <h2>Everything else,<br><em>built in.</em></h2>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">⌬</div>
+      <h3>Telegram-native</h3>
+      <p>No app to install. Forward a Telegram QR image, contact saved. Lives where you already message.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⊕</div>
+      <h3>Trip mode</h3>
+      <p><code>/trip set Token2049</code>. Every contact you save auto-tags with the event. One command turns 50 saves into a structured attendee list.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⇄</div>
+      <h3>sendContact share</h3>
+      <p>Share your contact card with one tap — recipient gets a native Telegram contact. The viral loop.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⊟</div>
+      <h3>Free-form tags</h3>
+      <p>Investor, founder, speaker, press, hot lead. Slice your network any way you think.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">✦</div>
+      <h3>AI assistant</h3>
+      <p>Ask in plain English. "Find me investors at Token2049." "Did I talk to anyone from StarkWare?" M3 drafts your follow-ups too — referencing what you actually discussed.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⊡</div>
+      <h3>Paper card OCR</h3>
+      <p>Pro tier. Forward a photo of a paper business card. M3 vision extracts name, company, title, email — ready to save.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⊡</div>
+      <h3>CSV export</h3>
+      <p>Export anytime. Your contacts, your tags, your notes. Standard CSV opens in Sheets, Excel, Notion. No lock-in.</p>
+    </div>
+  </div>
+</section>
+
+<!-- BUILT FOR -->
+<section class="section" id="built-for">
+  <div class="section-label">Built for</div>
+  <h2>Anyone whose job<br><em>involves meeting people.</em></h2>
+  <p class="section-sub">If you've ever forgotten someone's name two weeks after meeting them, this is for you.</p>
+
+  <div class="use-cases">
+    <div class="use-case">
+      <div class="use-case-icon">◇</div>
+      <h3>Founders & investors</h3>
+      <p>Track who you pitched, what they asked, who's a warm path to someone else.</p>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">⊟</div>
+      <h3>Sales & BD</h3>
+      <p>Capture leads at conferences. Remember the conversation. AI drafts the follow-up before your flight lands.</p>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">⌬</div>
+      <h3>Consultants & freelancers</h3>
+      <p>Own your client list across engagements. Move from project to project with your network intact.</p>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">⊕</div>
+      <h3>Recruiters</h3>
+      <p>Track candidates at career fairs. Remember context from each conversation. AI helps draft outreach.</p>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">≡</div>
+      <h3>Conference organizers</h3>
+      <p>Build attendee lists from QR scans. Tag by sponsor/speaker/track. Find warm intros between attendees.</p>
+    </div>
+    <div class="use-case">
+      <div class="use-case-icon">⊙</div>
+      <h3>Anyone at meetups</h3>
+      <p>Local communities, hobby groups, alumni networks. If you collect names, we collect them better.</p>
+    </div>
+  </div>
+</section>
+
+<!-- BLACK BOOK -->
+<section class="section" id="blackbook">
+  <div class="section-label">Data ownership</div>
+  <h2>Your black book.<br><em>Owned by you.</em></h2>
+  <p class="section-sub">Most CRMs treat your contacts as their data. recallbiz treats them as yours. Move jobs? Your network moves with you. Switch tools? Export and go. No lock-in, ever.</p>
+
+  <div class="blackbook">
+    <div>
+      <h3>When you change jobs,<br><em>your relationships don't have to.</em></h3>
+      <p>Salespeople lose 60% of their pipeline when they switch firms. The CRM owns the data. recallbiz doesn't.</p>
+      <ul>
+        <li>Export to CSV or JSON anytime, with one tap</li>
+        <li>Self-host option coming on Team tier</li>
+        <li>Works offline (Telegram bot is local-first)</li>
+        <li>No "we own your contacts" clause anywhere</li>
+      </ul>
+    </div>
+    <div class="blackbook-visual">
+      <div class="bb-row"><span class="bb-name">Jane Doe</span> <span class="bb-company">Polychain Capital</span></div>
+      <div class="bb-row"><span class="bb-name">Bob Lee</span> <span class="bb-company">Sequoia</span></div>
+      <div class="bb-row"><span class="bb-name">Satoshi K.</span> <span class="bb-company">StarkWare</span></div>
+      <div class="bb-row"><span class="bb-name">Ai-Chen Wong</span> <span class="bb-company">Animoca</span></div>
+      <div class="bb-arrow">↓</div>
+      <div class="bb-row">
+        <span class="bb-name">@ncik</span>
+        <span class="bb-tag">YOURS · 247 CONTACTS</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="section" id="pricing">
+  <div class="section-label">Pricing</div>
+  <h2>Free for the first 10.<br><em>Pro when you need more.</em></h2>
+  <p class="section-sub">The Telegram bot is free forever. The dashboard, paper card OCR, AI follow-ups at scale, and sendContact share are Pro. Teams share a workspace.</p>
+
+  <div class="pricing-grid">
+    <div class="price-card">
+      <div class="price-name">Free</div>
+      <div class="price-amount">$0<span> /forever</span></div>
+      <div class="price-desc">For trying it out and casual networkers.</div>
+      <ul class="price-features">
+        <li>10 saved contacts</li>
+        <li>Telegram bot (full)</li>
+        <li>Natural-language AI search</li>
+        <li>Trip mode + tags</li>
+        <li>AI follow-up drafts (limited)</li>
+      </ul>
+      <a class="btn-price" href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Start with Telegram →</a>
+    </div>
+
+    <div class="price-card featured">
+      <div class="price-name">Pro</div>
+      <div class="price-amount">$9.99<span> /mo</span></div>
+      <div class="price-desc">For people who meet a lot of people, often.</div>
+      <ul class="price-features">
+        <li>Unlimited contacts</li>
+        <li>Web dashboard (app.recallbiz.xyz)</li>
+        <li>Unlimited AI follow-up drafts</li>
+        <li>Paper card OCR (M3 vision)</li>
+        <li>sendContact share (viral loop)</li>
+        <li>Warm-intro matching</li>
+        <li>CSV export anytime</li>
+      </ul>
+      <a class="btn-price primary" href="#">Upgrade to Pro →</a>
+    </div>
+
+    <div class="price-card">
+      <div class="price-name">Team</div>
+      <div class="price-amount">$49<span> /mo</span></div>
+      <div class="price-desc">For VCs, BD teams, event organizers.</div>
+      <ul class="price-features">
+        <li>5+ seats</li>
+        <li>Shared contact database</li>
+        <li>Event organizer dashboard</li>
+        <li>Deep link event context</li>
+        <li>Self-host option</li>
+        <li>API access</li>
+      </ul>
+      <a class="btn-price" href="#">Contact sales →</a>
+    </div>
+  </div>
+
+  <p style="text-align:center; margin-top: 48px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3);">
+    Pay with Stripe · Telegram Stars · USDC · TON
+  </p>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="section-label" style="color: var(--accent);">Get started</div>
+  <h2>Your next meeting.<br><em>Remembered.</em></h2>
+  <p>Forward one QR to @RecallBizBot and see for yourself. Free forever for the first 10 contacts.</p>
+  <a class="btn-hero-primary" href="https://t.me/RecallBizBot" target="_blank" rel="noopener" style="font-size: 14px; padding: 18px 36px;">Open @RecallBizBot →</a>
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer-grid">
+    <div>
+      <div class="footer-brand">recallbiz</div>
+      <div class="footer-tagline">Telegram-native personal CRM with AI search and follow-up drafts. Built for anyone whose job involves meeting people. Your black book, owned by you.</div>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <ul>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Telegram bot</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Use cases</h4>
+      <ul>
+        <li><a href="#built-for">Sales & BD</a></li>
+        <li><a href="#built-for">Founders</a></li>
+        <li><a href="#built-for">Consultants</a></li>
+        <li><a href="#built-for">Recruiters</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Legal</h4>
+      <ul>
+        <li><a href="#">Privacy</a></li>
+        <li><a href="#">Terms</a></li>
+        <li><a href="#">Data export</a></li>
+        <li><a href="#">Delete my data</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>© 2026 recallbiz</span>
+    <span>Made for people who meet a lot of people, with ♥ in Telegram</span>
+  </div>
+</footer>
+
+</body>
+</html>

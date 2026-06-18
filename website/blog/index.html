@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blog — recallbiz</title>
+<meta name="description" content="Notes on networking, Telegram-native CRM, and crypto event survival. From the recallbiz team.">
+<meta property="og:title" content="recallbiz Blog">
+<meta property="og:description" content="Notes on networking, Telegram-native CRM, and crypto event survival.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://recallbiz.xyz/blog">
+<link rel="canonical" href="https://recallbiz.xyz/blog">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Blog",
+  "name": "recallbiz Blog",
+  "url": "https://recallbiz.xyz/blog",
+  "description": "Notes on networking, Telegram-native CRM, and crypto event survival."
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0e;
+  --surface: #16161e;
+  --surface-2: #1f1f28;
+  --border: #2a2a35;
+  --border-soft: rgba(232,232,238,.08);
+  --text: #e8e8ee;
+  --text-2: rgba(232,232,238,.65);
+  --text-3: rgba(232,232,238,.4);
+  --accent: #00ff88;
+  --accent-dim: rgba(0,255,136,.15);
+  --accent-2: #00d4ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-weight: 300;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* Nav (shared with landing page) */
+.nav {
+  position: sticky; top: 0;
+  z-index: 100;
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(10,10,14,.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 500;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none;
+}
+.logo-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+.nav-links {
+  display: flex; gap: 32px; list-style: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.nav-links a {
+  color: var(--text-2);
+  text-decoration: none;
+  transition: color .2s;
+}
+.nav-links a:hover { color: var(--text); }
+.nav-links a.active { color: var(--accent); }
+.btn-nav {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-3);
+}
+
+/* Page header */
+.page-header {
+  padding: 80px 32px 40px;
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+.page-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--accent);
+  margin-bottom: 24px;
+}
+.page-header h1 {
+  font-size: clamp(40px, 6vw, 72px);
+  font-weight: 200; line-height: 1.1;
+  letter-spacing: -.03em; margin-bottom: 24px;
+}
+.page-header h1 em {
+  font-style: italic; color: var(--text-2);
+}
+.page-sub {
+  font-size: 17px; color: var(--text-2);
+  max-width: 560px; margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Post grid */
+.posts {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+.post-card {
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: all .3s;
+}
+.post-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.post-cover {
+  aspect-ratio: 16/9;
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: center;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.post-cover-pattern {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(0,255,136,.06) 0%, transparent 50%),
+    radial-gradient(circle at 70% 60%, rgba(0,212,255,.04) 0%, transparent 50%);
+}
+.post-cover-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 32px;
+  color: var(--accent);
+  opacity: .6;
+  position: relative;
+  z-index: 1;
+}
+.post-body { padding: 24px; flex: 1; display: flex; flex-direction: column; }
+.post-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-3);
+  margin-bottom: 12px;
+  display: flex; gap: 12px; align-items: center;
+}
+.post-tag {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.post-card h2 {
+  font-size: 20px; font-weight: 400;
+  line-height: 1.3; margin-bottom: 12px;
+  letter-spacing: -.01em;
+}
+.post-card p {
+  font-size: 14px; color: var(--text-2);
+  line-height: 1.6;
+  flex: 1;
+}
+.post-cta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--accent);
+  margin-top: 16px;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* Empty / placeholder */
+.post-card.placeholder {
+  border-style: dashed;
+  background: transparent;
+  opacity: .7;
+}
+.post-card.placeholder .post-cover {
+  background: transparent;
+  border-bottom: 1px dashed var(--border);
+}
+.post-card.placeholder .post-cover-icon { color: var(--text-3); }
+.post-card.placeholder h2 { color: var(--text-2); }
+
+/* Footer */
+.footer {
+  padding: 48px 32px 32px;
+  border-top: 1px solid var(--border);
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .nav { padding: 16px 20px; }
+  .nav-links { display: none; }
+  .page-header, .posts { padding-left: 20px; padding-right: 20px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo">
+    <span class="logo-dot"></span>
+    recallbiz
+  </a>
+  <ul class="nav-links">
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/#pricing">Pricing</a></li>
+    <li><a href="/blog" class="active">Blog</a></li>
+    <li><a href="/#faq">FAQ</a></li>
+  </ul>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a class="btn-nav" href="https://t.me/RecallBizBot" target="_blank" rel="noopener">Open Bot →</a>
+    <div class="avatar">N</div>
+  </div>
+</nav>
+
+<div class="page-header">
+  <div class="page-label">Blog</div>
+  <h1>Notes from <em>the field.</em></h1>
+  <p class="page-sub">How to remember everyone at crypto events, Telegram-native CRM patterns, and what we learn running recallbiz for people who meet a lot of people.</p>
+</div>
+
+<section class="posts">
+
+  <a class="post-card" href="/blog/post-event-survival.html">
+    <div class="post-cover">
+      <div class="post-cover-pattern"></div>
+      <div class="post-cover-icon">⌬</div>
+    </div>
+    <div class="post-body">
+      <div class="post-meta">
+        <span>2026-06-15</span>
+        <span class="post-tag">networking</span>
+      </div>
+      <h2>How to survive a 500-person crypto event without losing a single contact</h2>
+      <p>The system we built for Token2049 — paper cards, Telegram QRs, and the 30-second introduction that actually works.</p>
+      <div class="post-cta">Read post →</div>
+    </div>
+  </a>
+
+  <a class="post-card" href="/blog/telegram-native-crm.html">
+    <div class="post-cover">
+      <div class="post-cover-pattern"></div>
+      <div class="post-cover-icon">⊕</div>
+    </div>
+    <div class="post-body">
+      <div class="post-meta">
+        <span>2026-06-10</span>
+        <span class="post-tag">product</span>
+      </div>
+      <h2>Why we built recallbiz in Telegram instead of a mobile app</h2>
+      <p>The case for shipping where your users already are. Friction analysis, viral mechanics, and what Telegram Login Widget got right.</p>
+      <div class="post-cta">Read post →</div>
+    </div>
+  </a>
+
+  <a class="post-card" href="/blog/recallbiz-launch.html">
+    <div class="post-cover">
+      <div class="post-cover-pattern"></div>
+      <div class="post-cover-icon">⇄</div>
+    </div>
+    <div class="post-body">
+      <div class="post-meta">
+        <span>2026-06-05</span>
+        <span class="post-tag">announcement</span>
+      </div>
+      <h2>Introducing recallbiz: your network, in one tap</h2>
+      <p>We're building a Telegram-native business card scanner + personal CRM. Forward a QR, save a contact, find anyone later.</p>
+      <div class="post-cta">Read post →</div>
+    </div>
+  </a>
+
+  <div class="post-card placeholder">
+    <div class="post-cover">
+      <div class="post-cover-icon">·</div>
+    </div>
+    <div class="post-body">
+      <div class="post-meta">
+        <span>coming soon</span>
+        <span class="post-tag">draft</span>
+      </div>
+      <h2>Next post</h2>
+      <p>Subscribe via @RecallBizBot or check back. We post when we have something worth saying.</p>
+      <div class="post-cta">—</div>
+    </div>
+  </div>
+
+</section>
+
+<footer class="footer">
+  © 2026 recallbiz · <a href="/" style="color: var(--text-3); text-decoration: underline;">Home</a> · <a href="https://t.me/RecallBizBot" style="color: var(--text-3); text-decoration: underline;">Telegram bot</a>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — recallbiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+
+  :root {
+    --bg: #0a0a0e;
+    --surface: #16161e;
+    --surface-2: #1e1e28;
+    --border: #2a2a35;
+    --border-strong: #3a3a48;
+    --text: #e8e8ee;
+    --text-2: #8a8a95;
+    --text-3: #5a5a65;
+    --accent: #00ff88;
+    --accent-dim: #00cc6f;
+    --accent-2: #00d4ff;
+    --danger: #ff5555;
+    --warning: #ffaa00;
+    --success: #00ff88;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font-family: inherit; cursor: pointer; }
+  input, textarea, select {
+    font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    border-radius: 6px;
+    outline: none;
+    width: 100%;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.15s;
+    text-decoration: none;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--bg); }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .btn-ghost:hover { background: var(--surface); border-color: var(--border); color: var(--text); }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-2);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.02em;
+  }
+  .chip-accent { background: rgba(0, 255, 136, 0.08); border-color: rgba(0, 255, 136, 0.3); color: var(--accent); }
+  .chip-cyan { background: rgba(0, 212, 255, 0.08); border-color: rgba(0, 212, 255, 0.3); color: var(--accent-2); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+  }
+  .stat {
+    font-size: 32px;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  .sidebar {
+    width: 240px;
+    height: 100vh;
+    position: fixed;
+    left: 0; top: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar-logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 32px;
+    padding: 0 8px;
+  }
+  .sidebar-nav { flex: 1; }
+  .sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    color: var(--text-2);
+    font-size: 14px;
+    margin-bottom: 2px;
+  }
+  .sidebar-link:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+  .sidebar-link.active { background: var(--surface-2); color: var(--accent); }
+  .sidebar-link .icon { font-size: 16px; width: 20px; }
+  .sidebar-user {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 8px;
+  }
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+  .main {
+    margin-left: 240px;
+    padding: 32px 40px;
+    min-height: 100vh;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+  }
+  .topbar h1 {
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  @media (max-width: 720px) {
+    .sidebar { width: 100%; height: auto; position: relative; padding: 16px; flex-direction: row; align-items: center; }
+    .sidebar-logo { margin-bottom: 0; margin-right: 16px; }
+    .sidebar-nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+    .sidebar-link { white-space: nowrap; margin-bottom: 0; }
+    .sidebar-user { display: none; }
+    .main { margin-left: 0; padding: 24px 16px; }
+  }
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+}
+.search-bar input { border: none; padding: 0; background: transparent; }
+.search-bar .icon { color: var(--text-3); }
+.filter-row { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+.trip-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: rgba(0, 255, 136, 0.05);
+  border: 1px solid rgba(0, 255, 136, 0.2);
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.trip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.trip-text { flex: 1; }
+.trip-name { font-weight: 500; font-size: 14px; }
+.trip-meta { color: var(--text-2); font-size: 12px; margin-top: 2px; }
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+.stat-card { padding: 20px; }
+.stat-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-3); margin-bottom: 8px; }
+.stat-value { font-size: 28px; font-weight: 300; letter-spacing: -0.02em; }
+.stat-delta { color: var(--accent); font-size: 12px; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+.contact-table { width: 100%; border-collapse: collapse; }
+.contact-table th { text-align: left; padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); border-bottom: 1px solid var(--border); font-weight: 500; }
+.contact-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.contact-table tr:hover td { background: var(--surface); }
+.contact-name { display: flex; align-items: center; gap: 10px; }
+.contact-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: var(--accent); border: 1px solid var(--border); }
+.contact-handle { color: var(--text-3); font-size: 12px; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+@media (max-width: 720px) {
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .contact-table th:nth-child(3), .contact-table td:nth-child(3),
+  .contact-table th:nth-child(5), .contact-table td:nth-child(5) { display: none; }
+}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo">recallbiz</div>
+  <nav class="sidebar-nav">
+    <a class="sidebar-link active" href="dashboard.html"><span class="icon">▣</span> Dashboard</a>
+    <a class="sidebar-link" href="#"><span class="icon">◉</span> Contacts</a>
+    <a class="sidebar-link" href="#"><span class="icon">⊕</span> Events</a>
+    <a class="sidebar-link" href="#"><span class="icon">⊟</span> Tags</a>
+    <a class="sidebar-link" href="referral.html"><span class="icon">⇄</span> Referrals</a>
+    <a class="sidebar-link" href="pricing.html"><span class="icon">★</span> Upgrade</a>
+    <a class="sidebar-link" href="#"><span class="icon">⚙</span> Settings</a>
+  </nav>
+  <div class="sidebar-user">
+    <div class="avatar">NW</div>
+    <div>
+      <div style="font-size: 13px; font-weight: 500;">Nick Williams</div>
+      <div style="font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', monospace;">@ncik</div>
+    </div>
+  </div>
+</aside>
+<main class="main">
+  <div class="topbar">
+    <h1>Dashboard</h1>
+    <div class="topbar-right">
+      <span class="chip">Pro · expires Sep 14</span>
+      <a class="btn btn-primary" href="#">+ Add contact</a>
+    </div>
+  </div>
+
+  <div class="trip-indicator">
+    <div class="trip-dot"></div>
+    <div class="trip-text">
+      <div class="trip-name">Token2049 Singapore</div>
+      <div class="trip-meta">Started 2 days ago · 47 contacts saved</div>
+    </div>
+    <button class="btn btn-ghost">End trip</button>
+  </div>
+
+  <div class="stat-row">
+    <div class="card stat-card">
+      <div class="stat-label">Total contacts</div>
+      <div class="stat-value">247</div>
+      <div class="stat-delta">+47 this trip</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">This week</div>
+      <div class="stat-value">52</div>
+      <div class="stat-delta">+38 vs last</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">Follow-ups due</div>
+      <div class="stat-value">12</div>
+      <div class="stat-delta" style="color: var(--warning);">3 overdue</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">Referrals earned</div>
+      <div class="stat-value">$84</div>
+      <div class="stat-delta">3 active subs</div>
+    </div>
+  </div>
+
+  <div class="search-bar">
+    <span class="icon">⌕</span>
+    <input placeholder="Search by name, company, notes, tag, event…">
+    <span class="mono" style="color: var(--text-3); font-size: 11px;">⌘K</span>
+  </div>
+
+  <div class="filter-row">
+    <span class="chip chip-accent">All · 247</span>
+    <span class="chip">Investors · 89</span>
+    <span class="chip">Founders · 64</span>
+    <span class="chip">Speakers · 22</span>
+    <span class="chip">Token2049 · 47</span>
+    <span class="chip">HK Meetup · 18</span>
+    <span class="chip">+ Add filter</span>
+  </div>
+
+  <div class="card" style="padding: 0; overflow: hidden;">
+    <table class="contact-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Company</th>
+          <th>Title</th>
+          <th>Met at</th>
+          <th>When</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="contact-name">
+              <div class="contact-avatar">JD</div>
+              <div>
+                <div>Jane Doe</div>
+                <div class="contact-handle">@janedoe</div>
+              </div>
+            </div>
+          </td>
+          <td>Polychain Capital</td>
+          <td>Partner</td>
+          <td><span class="chip chip-accent">Token2049</span></td>
+          <td class="mono" style="color: var(--text-2); font-size: 12px;">2h ago</td>
+          <td><button class="btn btn-ghost">⋯</button></td>
+        </tr>
+        <tr>
+          <td>
+            <div class="contact-name">
+              <div class="contact-avatar">BL</div>
+              <div>
+                <div>Bob Lee</div>
+                <div class="contact-handle">@boblee</div>
+              </div>
+            </div>
+          </td>
+          <td>Polychain Capital</td>
+          <td>Investor</td>
+          <td><span class="chip chip-accent">Token2049</span></td>
+          <td class="mono" style="color: var(--text-2); font-size: 12px;">3h ago</td>
+          <td><button class="btn btn-ghost">⋯</button></td>
+        </tr>
+        <tr>
+          <td>
+            <div class="contact-name">
+              <div class="contact-avatar">SK</div>
+              <div>
+                <div>Satoshi K.</div>
+                <div class="contact-handle">@satoshik</div>
+              </div>
+            </div>
+          </td>
+          <td>StarkWare</td>
+          <td>Head of BD</td>
+          <td><span class="chip chip-accent">Token2049</span></td>
+          <td class="mono" style="color: var(--text-2); font-size: 12px;">5h ago</td>
+          <td><button class="btn btn-ghost">⋯</button></td>
+        </tr>
+        <tr>
+          <td>
+            <div class="contact-name">
+              <div class="contact-avatar">AC</div>
+              <div>
+                <div>Ai-Chen Wong</div>
+                <div class="contact-handle">@aichen</div>
+              </div>
+            </div>
+          </td>
+          <td>Animoca Brands</td>
+          <td>Founder</td>
+          <td><span class="chip">HK Meetup</span></td>
+          <td class="mono" style="color: var(--text-2); font-size: 12px;">2d ago</td>
+          <td><button class="btn btn-ghost">⋯</button></td>
+        </tr>
+        <tr>
+          <td>
+            <div class="contact-name">
+              <div class="contact-avatar">MP</div>
+              <div>
+                <div>Maria Park</div>
+                <div class="contact-handle">@mpark</div>
+              </div>
+            </div>
+          </td>
+          <td>Paradigm</td>
+          <td>Researcher</td>
+          <td><span class="chip chip-accent">Token2049</span></td>
+          <td class="mono" style="color: var(--text-2); font-size: 12px;">2d ago</td>
+          <td><button class="btn btn-ghost">⋯</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+# Secrets — never commit (includes bot/.env, website/.env)
+.env
+*.env
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local data
+data/
+recordings/
+exports/
+
+# Static site build artifacts
+*.log
