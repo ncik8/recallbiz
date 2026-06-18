@@ -1,6 +1,7 @@
 # Secrets — never commit (includes bot/.env, website/.env)
+# Secrets — never commit
 .env
-*.env
+.env.*
 *.db
 *.sqlite
 *.sqlite3
