@@ -764,12 +764,28 @@ async def handle_conversation(user_id: str, user_text: str, last_contact: Option
 
     Returns dict: {"text": str, "focus": Optional[Dict]} so bot.py can persist
     last_contact across turns.
+
+    Chat history: loads the last 10 user/assistant messages from Supabase and
+    injects them between the system prompt and the current user message. This
+    is what stops the AI from re-asking for info the user just gave (timezone,
+    contact name, etc.). The current user message + final assistant reply are
+    persisted at the end of the turn so the next turn sees them.
     """
+    import asyncio
+    from db import save_message, get_recent_messages
+
     system = await build_system_prompt(user_id, last_contact=last_contact)
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user_text},
-    ]
+
+    # Load last 10 turns of context (oldest first). Safe on failure — empty list.
+    loop = asyncio.get_event_loop()
+    history = await loop.run_in_executor(None, lambda: get_recent_messages(user_id, limit=10))
+
+    messages = [{"role": "system", "content": system}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_text})
+
+    # Persist the user's message BEFORE the API call so it's there even if we crash.
+    await loop.run_in_executor(None, lambda: save_message(user_id, "user", user_text))
 
     # First call: may include tool_calls
     try:
@@ -782,7 +798,9 @@ async def handle_conversation(user_id: str, user_text: str, last_contact: Option
 
     # If no tool calls, return the cleaned text
     if not msg.get("tool_calls"):
-        return {"text": _clean_response(msg.get("content")) or "I'm not sure how to help with that.", "focus": None}
+        text = _clean_response(msg.get("content")) or "I'm not sure how to help with that."
+        await loop.run_in_executor(None, lambda: save_message(user_id, "assistant", text))
+        return {"text": text, "focus": None}
 
     # Execute tool calls — track any focus_contact signals
     focused = None
@@ -804,11 +822,14 @@ async def handle_conversation(user_id: str, user_text: str, last_contact: Option
     # Second call: get natural-language summary
     try:
         resp2 = await call_minimax(messages, tools=TOOLS)
-        text = _clean_response(resp2["choices"][0]["message"].get("content"))
-        return {"text": text or "Done.", "focus": focused}
+        text = _clean_response(resp2["choices"][0]["message"].get("content")) or "Done."
+        await loop.run_in_executor(None, lambda: save_message(user_id, "assistant", text))
+        return {"text": text, "focus": focused}
     except Exception as e:
         log.exception("MiniMax follow-up call failed")
-        return {"text": "Done — but I couldn't write a summary. Try /list to see the result.", "focus": focused}
+        fallback = "Done — but I couldn't write a summary. Try /list to see the result."
+        await loop.run_in_executor(None, lambda: save_message(user_id, "assistant", fallback))
+        return {"text": fallback, "focus": focused}
 
 
 import re

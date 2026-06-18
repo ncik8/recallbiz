@@ -675,3 +675,88 @@ def find_contact_by_partial_name(user_id: str, name: str) -> Optional[dict]:
     except Exception as e:
         log.warning("find_contact_by_partial_name failed: %s", e)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Chat history — persistent per-user conversation context
+# ---------------------------------------------------------------------------
+# The bot's LLM has no built-in memory. We persist user/assistant turns to
+# Supabase and load the last N before each LLM call so the AI can see what
+# the user just said (and not re-ask for it). See migration 004.
+
+def save_message(user_id: str, role: str, content: str = None) -> None:
+    """Persist a single chat message. Failures MUST NOT break a real command.
+
+    role: 'user' | 'assistant' | 'tool'
+    """
+    try:
+        row = {"user_id": user_id, "role": role}
+        if content is not None:
+            row["content"] = content
+        get_client().table("messages").insert(row).execute()
+    except Exception as e:
+        log.warning("save_message failed: %s", e)
+
+
+def get_recent_messages(user_id: str, limit: int = 10) -> list:
+    """Return the last N user/assistant messages for a user, oldest first.
+
+    Returns a list of dicts in OpenAI messages format:
+        [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    Drops 'tool' rows — the AI re-runs its own tool calls each turn, so
+    replaying tool_call_id metadata would just confuse it.
+    Empty list on failure (caller treats as 'no history').
+    """
+    try:
+        res = (
+            get_client().table("messages")
+            .select("role, content, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        # Reverse to chronological (oldest first), drop tool rows + empties
+        rows = list(reversed(res.data or []))
+        return [
+            {"role": r["role"], "content": r["content"]}
+            for r in rows
+            if r.get("content") and r["role"] in ("user", "assistant")
+        ]
+    except Exception as e:
+        log.warning("get_recent_messages failed: %s", e)
+        return []
+
+
+def prune_old_messages(user_id: str, keep: int = 50) -> int:
+    """Optional: trim a user's history to the last `keep` messages.
+
+    Returns count of rows deleted. Not used by the bot itself — only for
+    the eventual cron job or a manual cleanup. Safe to call; non-fatal on error.
+    """
+    try:
+        client = get_client()
+        # Find the cutoff created_at
+        cutoff_res = (
+            client.table("messages")
+            .select("created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .offset(keep)
+            .limit(1)
+            .execute()
+        )
+        if not cutoff_res.data:
+            return 0
+        cutoff = cutoff_res.data[0]["created_at"]
+        del_res = (
+            client.table("messages")
+            .delete()
+            .eq("user_id", user_id)
+            .lt("created_at", cutoff)
+            .execute()
+        )
+        return len(del_res.data or [])
+    except Exception as e:
+        log.warning("prune_old_messages failed: %s", e)
+        return 0
