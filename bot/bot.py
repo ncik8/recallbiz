@@ -82,6 +82,7 @@ HELP = """Commands:
   /help — This message
 
 Tip: Forward any Telegram QR image to me and I'll save the contact automatically.
+You can also share a Telegram contact card and I'll grab the name + phone.
 
 Filters for /send:
   tag:investor    — all contacts tagged X
@@ -400,6 +401,55 @@ async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.exception("handle_conversation failed")
         await processing.edit_text(
             "Sorry, I had trouble with that. Try again or rephrase."
+        )
+
+
+async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Native Telegram contact share — save name + phone from message.contact.
+
+    Triggered when a user taps 'Share Contact' (or forwards a contact card).
+    The shared contact has: first_name, last_name (optional), phone_number,
+    and user_id (only if they're a Telegram user with the bot in scope).
+    """
+    user_id = await _resolve_user_id(update, context)
+    log_usage(user_id, "contact_shared")
+
+    contact = update.message.contact
+    if not contact:
+        return
+
+    # Compose display name — fall back to phone if name missing
+    first = (contact.first_name or "").strip()
+    last = (contact.last_name or "").strip()
+    name = f"{first} {last}".strip() or f"Contact {contact.phone_number}"
+
+    # Strip spaces from phone for consistent storage
+    phone = (contact.phone_number or "").replace(" ", "").replace("-", "") or None
+    tg_uid = contact.user_id  # int or None — only set if they're a Telegram user
+
+    try:
+        contact_id = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: save_contact(
+                user_id=user_id,
+                name=name,
+                phone=phone,
+                telegram_user_id=tg_uid,
+                source="telegram_share",
+            ),
+        )
+        log_usage(user_id, "contact_saved", f"contact_id={contact_id}")
+        lines = [f"Saved: {name}"]
+        if phone:
+            lines.append(f"Phone: {phone}")
+        if tg_uid:
+            lines.append("(Telegram user)")
+        lines.append("\nReply with anything to add (company, notes, etc.) or just ignore.")
+        await update.message.reply_text("\n".join(lines))
+    except Exception as e:
+        log.exception("contact_handler save_contact failed")
+        await update.message.reply_text(
+            "Couldn't save that contact. Try /save to add manually."
         )
 
 
@@ -785,6 +835,7 @@ def main():
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+    app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo_text))
 
     log.info("Starting bot...")
