@@ -1,4 +1,4 @@
-"""RecallBiz Telegram bot — main entry point."""
+"""TRCE (formerly RecallBiz) Telegram bot — main entry point."""
 import os
 import re
 import asyncio
@@ -92,15 +92,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-APP_URL_PUBLIC = os.environ.get("APP_URL_PUBLIC", "https://recallbiz.xyz")
+APP_URL_PUBLIC = os.environ.get("APP_URL_PUBLIC", "https://trce.io")
 
 
-WELCOME = """👋 Welcome to RecallBiz.
+WELCOME = """👋 Welcome to TRCE — Trace AI.
 
-Your business card scanner + personal CRM, right inside Telegram.
+Your business card scanner + personal CRM, right inside Telegram. Never forget a contact again.
 
 📌 PIN THIS CHAT
-Long-press in your chat list → "Pin". You'll want RecallBiz at the top during events.
+Long-press in your chat list → "Pin". You'll want TRCE at the top during events.
 
 📋 MENU
   /signup — required before any save (free = 10 contacts)
@@ -291,7 +291,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return "?" if n < 0 else f"{n:,}"
 
     lines = [
-        "RecallBiz stats",
+        "TRCE stats",
         "",
         f"Users:        {fmt(stats['users_total'])} total, "
         f"{fmt(stats['users_signed_up'])} signed up",

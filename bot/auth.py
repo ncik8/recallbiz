@@ -3,7 +3,7 @@
 Flow:
 1. User types /signup email@x.com in DM
 2. We generate a random token, store it in magic_link_tokens
-3. We send a Resend email with a t.me/RecallBizBot?start=verify_<token> link
+3. We send a Resend email with a t.me/trceiobot?start=verify_<token> link
 4. User clicks → opens Telegram → taps /start verify_<token>
 5. Bot consumes the token, sets users.email + email_verified=true
 
@@ -19,9 +19,9 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "RecallBiz <hello@recallbiz.xyz>")
-APP_URL = os.environ.get("APP_URL", "https://recallbiz.xyz")
-BOT_USERNAME = os.environ.get("BOT_USERNAME", "RecallBizBot")  # without @
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "TRCE <hello@trce.io>")
+APP_URL = os.environ.get("APP_URL", "https://trce.io")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "trceiobot")  # without @
 
 DEV_MODE = not bool(RESEND_API_KEY)
 
@@ -77,10 +77,10 @@ async def start_signup(user_id: str, raw_email: str) -> dict:
                 json={
                     "from": FROM_EMAIL,
                     "to": [email],
-                    "subject": "Confirm your RecallBiz signup",
+                    "subject": "Confirm your TRCE signup",
                     "html": (
                         f'<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:24px;">'
-                        f'<h2 style="margin:0 0 16px;">Welcome to RecallBiz</h2>'
+                        f'<h2 style="margin:0 0 16px;">Welcome to TRCE</h2>'
                         f'<p>Click below to confirm your email and activate your account:</p>'
                         f'<p style="margin:24px 0;">'
                         f'<a href="{link}" style="background:#0A0A0A;color:#F4F2EC;padding:12px 24px;'

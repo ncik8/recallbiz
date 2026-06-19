@@ -1,4 +1,4 @@
-"""Supabase-backed DB layer for RecallBiz.
+"""Supabase-backed DB layer for TRCE (formerly RecallBiz).
 
 Multi-tenant: every function takes `user_id` (the INTERNAL users.id UUID,
 not the telegram_user_id). Call `get_or_create_user(telegram_user_id)`

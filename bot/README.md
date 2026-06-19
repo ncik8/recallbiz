@@ -1,8 +1,8 @@
-# RecallBiz bot
+# TRCE bot (formerly RecallBiz)
 
-Telegram-native business card scanner + personal CRM.
+Telegram-native business card scanner + personal CRM. Never forget a contact again.
 
-**Bot handle:** @RecallBizBot
+**Bot handle:** @trceiobot
 **Status:** v0.1 — manual save + trip mode + search
 **Stack:** Python 3.11, python-telegram-bot v21, SQLite, Railway
 

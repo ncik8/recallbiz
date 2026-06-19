@@ -1,4 +1,4 @@
-"""Image processing for RecallBiz bot.
+"""Image processing for TRCE bot (formerly RecallBiz).
 
 Two paths:
 1. QR code decode (OpenCV cv2) — pure Python wheel, no system deps

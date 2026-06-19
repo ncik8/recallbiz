@@ -1,6 +1,6 @@
-# RecallBiz Tester Guide
+# TRCE Tester Guide (formerly RecallBiz)
 
-Welcome! You're helping Nick test RecallBiz — a Telegram bot that scans business cards and saves the contact for you. This takes about **10 minutes**.
+Welcome! You're helping Nick test TRCE — a Telegram bot that scans business cards and saves the contact for you. This takes about **10 minutes**.
 
 ---
 
@@ -17,10 +17,10 @@ Welcome! You're helping Nick test RecallBiz — a Telegram bot that scans busine
 ## Step 1: Start the bot
 
 1. Open Telegram on your phone
-2. Search for `@RecallBizBot`
+2. Search for `@trceiobot`
 3. Tap **Start** (or send `/start`)
 
-You should see a welcome message from the bot.
+You should see a welcome message from the bot ("Welcome to TRCE — Trace AI").
 
 ---
 
@@ -34,7 +34,7 @@ In Telegram, send:
 /signup your-real-email@example.com
 ```
 
-Check your email inbox (and spam folder) for a message from RecallBiz. Click the magic link inside. It'll take you back to the bot automatically.
+Check your email inbox (and spam folder) for a message from TRCE. Click the magic link inside. It'll take you back to the bot automatically.
 
 **You should see:** *"Email confirmed: your@email.com — You're signed up. Free plan includes 10 contacts."*
 
