@@ -107,9 +107,16 @@ async def start_signup(user_id: str, raw_email: str) -> dict:
             )
             r.raise_for_status()
             return {"success": True, "email": email, "dev_mode": False}
+    except httpx.HTTPStatusError as e:
+        log.error("Resend HTTP %s for %s", e.response.status_code, email)
+        try:
+            log.error("Resend response body: %s", e.response.json())
+        except Exception:
+            log.error("Resend response text: %s", e.response.text[:500])
+        return {"error": "Couldn't send the email right now. Try again in a moment, or /help if it keeps failing."}
     except Exception as e:
-        log.exception("Resend send failed: %s", e)
-        return {"error": "Couldn't send the email right now. Try again in a moment."}
+        log.exception("Resend send failed (network/parse): %s", e)
+        return {"error": "Couldn't send the email right now. Try again in a moment, or /help if it keeps failing."}
 
 
 async def complete_signup(token: str) -> dict:
