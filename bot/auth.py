@@ -23,17 +23,20 @@ APP_URL = os.environ.get("APP_URL", "https://trce.io")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "trceiobot")  # without @
 
 # FROM_EMAIL behavior:
-#   - If set in env: use it as-is (e.g. "TRCE <hello@trce.io>" after domain verify)
+#   - If set in env: use it as-is (e.g. "TRCE <hello@contact.trce.io>" after domain verify)
 #   - If NOT set: fall back to Resend's sandbox sender "onboarding@resend.dev"
 #     which only delivers to the email tied to your Resend account (good for
 #     local testing while DNS records at worldnic.com are still propagating).
-_DEFAULT_FROM = "TRCE <hello@trce.io>"
+# We use contact.trce.io (a subdomain) instead of the root trce.io so email
+# reputation is isolated from any other trce.io traffic. Add + verify
+# contact.trce.io at resend.com/domains.
+_DEFAULT_FROM = "TRCE <hello@contact.trce.io>"
 _SANDBOX_FROM = "TRCE <onboarding@resend.dev>"
 FROM_EMAIL = os.environ.get("FROM_EMAIL") or _SANDBOX_FROM
 USING_SANDBOX = FROM_EMAIL == _SANDBOX_FROM
 
 if RESEND_API_KEY and USING_SANDBOX:
-    log.warning("RESEND: using sandbox sender (FROM_EMAIL not set). Magic links only deliver to the email tied to your Resend account. Set FROM_EMAIL=TRCE <hello@trce.io> after verifying trce.io at resend.com/domains.")
+    log.warning("RESEND: using sandbox sender (FROM_EMAIL not set). Magic links only deliver to the email tied to your Resend account. Set FROM_EMAIL=TRCE <hello@contact.trce.io> after verifying contact.trce.io at resend.com/domains.")
 elif RESEND_API_KEY:
     log.info("RESEND: sending from %s", FROM_EMAIL)
 
