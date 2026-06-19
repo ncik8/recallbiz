@@ -1,4 +1,4 @@
-"""TRCE (formerly RecallBiz) Telegram bot — main entry point."""
+"""TRCE — Telegram-native AI contact memory. Main bot entry point."""
 import os
 import re
 import asyncio
@@ -95,9 +95,9 @@ log = logging.getLogger(__name__)
 APP_URL_PUBLIC = os.environ.get("APP_URL_PUBLIC", "https://trce.io")
 
 
-WELCOME = """👋 Welcome to TRCE — Trace AI.
+WELCOME = """Welcome to TRCE.IO — Your AI PA.
 
-Your business card scanner + personal CRM, right inside Telegram. Never forget a contact again.
+Never forget a contact again. Snap a business card, forward a QR, screenshot a contact from anywhere, or just send a note. The AI extracts, indexes, and finds anyone on demand.
 
 📌 PIN THIS CHAT
 Long-press in your chat list → "Pin". You'll want TRCE at the top during events.
@@ -115,7 +115,7 @@ Type / anytime to see this menu.
 HOW IT WORKS
 1. Type /signup you@gmail.com — we send a magic link to confirm
 2. Click it, you're in (free plan = 10 contacts)
-3. Forward a Telegram QR, send a photo of a card, or share a contact"""
+3. Forward a photo, send a card, or share a contact"""
 
 HELP = """Commands:
   /start — Welcome + onboarding
