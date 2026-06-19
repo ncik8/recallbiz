@@ -1,4 +1,4 @@
-"""Minimal Flask app for recallbiz landing + future backend.
+"""Minimal Flask app for trce landing + future backend.
 Serves the static site at / and adds API routes as the product grows."""
 import os
 from flask import Flask, send_from_directory, abort
@@ -48,7 +48,7 @@ def static_file(filename):
 # ============== HEALTHCHECK ==============
 @app.route("/health")
 def health():
-    return {"status": "ok", "service": "recallbiz-web"}
+    return {"status": "ok", "service": "trce-web"}
 
 
 if __name__ == "__main__":
