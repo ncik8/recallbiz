@@ -902,3 +902,87 @@ def consume_magic_token(token: str) -> dict:
     except Exception as e:
         log.exception("consume_magic_token failed: %s", e)
         return {"error": "Verification failed. Try /signup again."}
+
+
+# ---------------------------------------------------------------------------
+# Stats helpers for /stats command (founder visibility)
+# ---------------------------------------------------------------------------
+
+def _count_rows(table: str, since: Optional[str] = None) -> int:
+    """Count rows in a table. since=ISO timestamp for 'since X' filtering."""
+    try:
+        client = get_client()
+        q = client.table(table).select("id", count="exact").limit(1)
+        if since:
+            q = q.gte("created_at", since)
+        resp = q.execute()
+        return resp.count or 0
+    except Exception as e:
+        log.exception("_count_rows(%s) failed: %s", table, e)
+        return -1
+
+
+def get_founder_stats() -> dict:
+    """
+    Read-only summary for the /stats command. Returns:
+      - users_total, users_signed_up (email_verified=true)
+      - contacts_total, contacts_today
+      - signups_today, signups_last_7d
+      - events_today, events_last_7d
+      - active_trips (count of users with active trip)
+      - magic_links_pending (unconsumed tokens)
+
+    Safe to call any time — never raises, returns -1 on error.
+    """
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    seven_days_ago = (now - timedelta(days=7)).isoformat()
+
+    users_total = _count_rows("users")
+    contacts_total = _count_rows("contacts")
+    contacts_today = _count_rows("contacts", today_start)
+
+    # Signed-up users (those who completed magic link)
+    try:
+        client = get_client()
+        signed_up = client.table("users").select("id", count="exact") \
+            .eq("email_verified", True).limit(1).execute().count or 0
+    except Exception:
+        signed_up = -1
+
+    signups_today = _count_rows("users", today_start)
+    signups_7d = _count_rows("users", seven_days_ago)
+
+    events_today = _count_rows("events", today_start)
+    events_7d = _count_rows("events", seven_days_ago)
+
+    # Active trips
+    try:
+        client = get_client()
+        active_trips = client.table("events").select("id", count="exact") \
+            .eq("event_name", "trip_start").limit(1).execute().count or 0
+    except Exception:
+        active_trips = -1
+
+    # Pending magic link tokens (unconsumed)
+    try:
+        client = get_client()
+        pending_links = client.table("magic_link_tokens").select("id", count="exact") \
+            .is_("consumed_at", "null").limit(1).execute().count or 0
+    except Exception:
+        pending_links = -1
+
+    return {
+        "users_total": users_total,
+        "users_signed_up": signed_up,
+        "contacts_total": contacts_total,
+        "contacts_today": contacts_today,
+        "signups_today": signups_today,
+        "signups_last_7d": signups_7d,
+        "events_today": events_today,
+        "events_last_7d": events_7d,
+        "active_trips": active_trips,
+        "magic_links_pending": pending_links,
+        "generated_at": now.isoformat(),
+    }

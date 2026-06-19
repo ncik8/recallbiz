@@ -243,6 +243,44 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(HELP)
 
 
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Founder-only stats dashboard. Gated by Telegram user_id.
+
+    Access:    Only the founder (default 6045136979, override via FOUNDER_TG_ID env)
+    Shows:     users, contacts, signups today/7d, events, active trips, pending links
+    """
+    founder_id = int(os.environ.get("FOUNDER_TG_ID", "6045136979"))
+    caller_id = update.effective_user.id if update.effective_user else None
+    if caller_id != founder_id:
+        # Don't reveal the command exists to non-founders.
+        await update.message.reply_text("Unknown command. /help for the list.")
+        log.warning("/stats attempted by non-founder user_id=%s", caller_id)
+        return
+
+    from db import get_founder_stats
+    stats = get_founder_stats()
+
+    def fmt(n):
+        return "?" if n < 0 else f"{n:,}"
+
+    lines = [
+        "RecallBiz stats",
+        "",
+        f"Users:        {fmt(stats['users_total'])} total, "
+        f"{fmt(stats['users_signed_up'])} signed up",
+        f"Signups:      {fmt(stats['signups_today'])} today, "
+        f"{fmt(stats['signups_last_7d'])} last 7d",
+        f"Contacts:     {fmt(stats['contacts_total'])} total, "
+        f"{fmt(stats['contacts_today'])} today",
+        f"Events:       {fmt(stats['events_today'])} today, "
+        f"{fmt(stats['events_last_7d'])} last 7d",
+        f"Active trips: {fmt(stats['active_trips'])}",
+        f"Pending links: {fmt(stats['magic_links_pending'])}",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
 async def save_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manual save flow — interactive prompts."""
     user_id = await _resolve_user_id(update, context)
@@ -1051,6 +1089,7 @@ def main():
     app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
     app.add_handler(CommandHandler("signup", signup_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
