@@ -58,6 +58,32 @@ async def _is_signed_up(user_id: str) -> bool:
         log.warning("_is_signed_up check failed: %s", e)
         return True  # fail open
 
+
+async def _require_signup(update, context, action: str = "use that") -> bool:
+    """Sign-up gate for handlers. Sends a friendly prompt + returns True
+    if the user is NOT signed up (caller should `return` immediately).
+    Returns False if signed up (caller should proceed).
+
+    Use this in /list, /find, /trip, /send, /save, photo_handler,
+    contact_handler, echo_text. The /start, /help, /signup, and
+    /stats commands stay open so onboarding isn't blocked.
+
+    `action` is a short verb phrase used in the prompt, e.g.
+        _require_signup(update, context, action="search contacts")
+    → "Quick signup to search contacts..."
+    """
+    user_id = await _resolve_user_id(update, context)
+    if await _is_signed_up(user_id):
+        return False
+    log_usage(user_id, "signup_gate_blocked", details=action)
+    await update.message.reply_text(
+        f"Quick signup to {action} — keeps your data safe.\n\n"
+        f"/signup you@gmail.com\n"
+        f"(Free plan = 10 contacts, takes ~30 sec)"
+    )
+    return True
+
+
 load_dotenv()
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -366,6 +392,8 @@ async def cancel_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _require_signup(update, context, action="see your contacts"):
+        return
     user_id = await _resolve_user_id(update, context)
     log_usage(user_id, "list")
     rows = await asyncio.get_event_loop().run_in_executor(
@@ -387,6 +415,8 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def find_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _require_signup(update, context, action="search contacts"):
+        return
     user_id = await _resolve_user_id(update, context)
     query = " ".join(context.args) if context.args else ""
     if not query:
@@ -409,6 +439,8 @@ async def find_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def trip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await _require_signup(update, context, action="use trip mode"):
+        return
     user_id = await _resolve_user_id(update, context)
     args = context.args
     if not args:
@@ -471,6 +503,8 @@ async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     from urllib.parse import quote
 
+    if await _require_signup(update, context, action="message your contacts"):
+        return
     user_id = await _resolve_user_id(update, context)
 
     args = context.args
@@ -567,7 +601,10 @@ async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_save_message(update, context)
         return
 
-    # No pending state — route to MiniMax conversational layer
+    # No pending state — route to MiniMax conversational layer.
+    # Gate: only signed-up users can chat with the AI.
+    if await _require_signup(update, context, action="chat with the AI"):
+        return
     user_id = context.user_data.get("user_id") or await _resolve_user_id(update, context)
     user_text = update.message.text.strip()
     if not user_text:
