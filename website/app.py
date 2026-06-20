@@ -686,10 +686,34 @@ def billing_portal():
     user_id = _current_user_id()
     user = db.get_user_by_id(user_id) or {}
     customer_id = user.get("stripe_customer_id")
+    sub_status = user.get("subscription_status")
+    plan = user.get("plan")
     if not customer_id:
+        # Distinguish: user has plan=pro but DB lookup didn't return customer_id
+        # (means a SELECT bug — user IS paying but we can't find them). Show
+        # different copy than the genuinely-no-subscription case.
+        if plan == "pro":
+            msg = (
+                "<h1>Subscription found, but we couldn't open the billing portal</h1>"
+                "<p>This is a known issue on our side. Please email "
+                "<a href='mailto:hello@contact.trce.io'>hello@contact.trce.io</a> "
+                "and we'll cancel manually within 24 hours.</p>"
+                "<p><a href='/dashboard'>Back to dashboard</a></p>"
+            )
+            app.logger.error(
+                "billing-portal: user %s has plan=pro but no stripe_customer_id in DB",
+                user_id,
+            )
+            return msg, 500
         return render_template_string(
             "<h1>No active subscription</h1>"
             "<p>You don't have a Stripe customer record yet.</p>"
+            "<p><a href='/pricing'>See plans</a> · <a href='/dashboard'>Back to dashboard</a></p>"
+        ), 400
+    if sub_status == "canceled":
+        return render_template_string(
+            "<h1>Subscription already canceled</h1>"
+            "<p>Your Pro plan ended. You can re-subscribe anytime.</p>"
             "<p><a href='/pricing'>See plans</a> · <a href='/dashboard'>Back to dashboard</a></p>"
         ), 400
     if not stripe_billing.is_configured():
@@ -700,7 +724,7 @@ def billing_portal():
             return_url="https://trce.io/dashboard",
         )
     except Exception as e:
-        app.logger.exception("billing portal session failed")
+        app.logger.exception("billing portal session failed: %s", e)
         return {"error": "Could not open billing portal"}, 500
     return redirect(url, code=303)
 

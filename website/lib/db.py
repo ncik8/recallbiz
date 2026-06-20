@@ -1197,11 +1197,14 @@ def find_user_by_telegram_id(tg_id: int) -> Optional[dict]:
 def get_user_by_id(user_id: str) -> Optional[dict]:
     """Look up a user row by internal UUID. Used by the web dashboard to resolve
     the session user_id back to email + plan.
-    Returns dict or None."""
+    Returns dict or None.
+    Note: includes stripe_customer_id so /billing-portal can find the Stripe
+    customer without a second round-trip. Don't add sensitive fields here."""
     try:
         res = (
             get_client().table("users")
-            .select("id, email, email_verified, plan, is_tester, display_name")
+            .select("id, email, email_verified, plan, is_tester, display_name, "
+                    "stripe_customer_id, subscription_status, stripe_subscription_id")
             .eq("id", user_id)
             .limit(1)
             .execute()
