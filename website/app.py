@@ -144,6 +144,8 @@ def consent_get():
 @app.route("/login", methods=["GET", "POST"])
 def login_get():
     """GET: show form. POST: verify password and set session."""
+    # Show a success flash after password reset
+    reset_success = request.args.get("reset") == "1"
     if request.method == "POST":
         email = (request.form.get("email") or "").strip()
         password = request.form.get("password") or ""
@@ -154,17 +156,137 @@ def login_get():
             session["email"] = email.lower()
             next_url = request.args.get("next") or "/dashboard"
             return redirect(next_url)
-        return render_template("login.html", error=result.get("error", "Login failed."))
+        return render_template("login.html", error=result.get("error", "Login failed."), reset_success=False)
     # GET — if already logged in, go straight to dashboard
     if _current_user_id():
         return redirect("/dashboard")
-    return render_template("login.html")
+    return render_template("login.html", error=None, reset_success=reset_success)
 
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
+
+
+# ============== PASSWORD RESET ==============
+
+def _send_reset_email(to_email: str, reset_url: str) -> bool:
+    """Send the password reset email via Resend.
+
+    Returns True if send succeeded, False otherwise. The error is logged but
+    not surfaced to the user — same response whether or not the email sent,
+    to avoid leaking which addresses are registered.
+    """
+    try:
+        import resend
+        resend.api_key = os.environ.get("RESEND_API_KEY", "")
+        if not resend.api_key:
+            app.logger.warning("RESEND_API_KEY not set; cannot send reset email")
+            return False
+        from_email = os.environ.get("FROM_EMAIL") or "TRCE <hello@contact.trce.io>"
+        html = f"""<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; color: #0a0a0a;">
+  <div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; margin-bottom: 24px;">trce<span style="color: #8a8a95;">.io</span></div>
+  <h1 style="font-size: 20px; font-weight: 600; margin: 0 0 16px;">Reset your TRCE password</h1>
+  <p style="font-size: 14px; line-height: 1.6; color: #4a4a52; margin: 0 0 24px;">
+    Someone (hopefully you) asked to reset the password for your TRCE account.
+    Click the button below to set a new password. The link expires in 1 hour
+    and can only be used once.
+  </p>
+  <p style="margin: 0 0 24px;">
+    <a href="{reset_url}" style="display: inline-block; background: #00cc6f; color: #0a0a0e; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px;">Reset password</a>
+  </p>
+  <p style="font-size: 12px; line-height: 1.6; color: #8a8a95; margin: 0 0 8px;">
+    If the button doesn't work, paste this URL into your browser:
+  </p>
+  <p style="font-family: 'JetBrains Mono', monospace; font-size: 11px; word-break: break-all; background: #f4f4f4; padding: 10px 12px; border-radius: 4px; color: #4a4a52; margin: 0 0 24px;">
+    {reset_url}
+  </p>
+  <p style="font-size: 12px; line-height: 1.6; color: #8a8a95; margin: 0;">
+    If you didn't request this, you can ignore the email — your password
+    stays the same.
+  </p>
+  <hr style="border: none; border-top: 1px solid #e8e8e8; margin: 24px 0;">
+  <p style="font-size: 11px; color: #8a8a95; margin: 0;">
+    TRCE · Never forget a contact again.
+  </p>
+</div>"""
+        resend.Emails.send({
+            "from": from_email,
+            "to": to_email,
+            "subject": "Reset your TRCE password",
+            "html": html,
+        })
+        return True
+    except Exception as e:
+        app.logger.warning("Failed to send reset email: %s", e)
+        return False
+
+
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    """Password reset request form.
+
+    GET: show the email input form.
+    POST: create reset token, send email, always show same success message
+    (don't leak whether the email exists).
+    """
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        # Always show the same response, regardless of whether the email
+        # is registered. Only actually send if the user exists.
+        if email and "@" in email:
+            token = db.create_password_reset_token(email)
+            if token:
+                reset_url = f"https://trce.io/reset/{token}"
+                _send_reset_email(email, reset_url)
+        return render_template("forgot.html", sent=True, email=email)
+    return render_template("forgot.html", sent=False, email="")
+
+
+@app.route("/reset/<token>", methods=["GET", "POST"])
+def reset(token):
+    """Password reset form.
+
+    GET: show the new-password form (token valid + not used + not expired).
+    POST: validate, set new password, redirect to /login with success flash.
+    """
+    if request.method == "POST":
+        new_password = request.form.get("password") or ""
+        confirm = request.form.get("confirm") or ""
+        if new_password != confirm:
+            return render_template("reset.html", token=token, error="Passwords don't match.", email="")
+        result = db.consume_password_reset_token(token, new_password)
+        if "error" in result:
+            return render_template("reset.html", token=token, error=result["error"], email="")
+        # Success — redirect to login with flash
+        return redirect("/login?reset=1")
+    # GET: pre-validate token (don't consume — consume only on POST)
+    try:
+        client = db.get_client()
+        res = (
+            client.table("password_reset_tokens")
+            .select("user_id, expires_at, used_at")
+            .eq("token", token)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return render_template("reset.html", token="", error="This reset link is invalid. Request a new one.", email="")
+        row = res.data[0]
+        if row.get("used_at"):
+            return render_template("reset.html", token="", error="This reset link has already been used.", email="")
+        from datetime import datetime, timezone
+        expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+        if expires < datetime.now(timezone.utc):
+            return render_template("reset.html", token="", error="This reset link has expired. Request a new one.", email="")
+        # Look up email for display
+        user_res = client.table("users").select("email").eq("id", row["user_id"]).limit(1).execute()
+        email = user_res.data[0]["email"] if user_res.data else ""
+        return render_template("reset.html", token=token, error=None, email=email)
+    except Exception as e:
+        app.logger.warning("reset GET failed: %s", e)
+        return render_template("reset.html", token="", error="Something went wrong. Request a new reset link.", email="")
 
 
 # ============== DASHBOARD ==============

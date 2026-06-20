@@ -10,6 +10,7 @@ this to a Supabase auth user (so users can also log in via web).
 import os
 import logging
 from typing import Optional
+from datetime import datetime, timezone, timedelta
 from supabase import create_client, Client
 import bcrypt
 
@@ -1059,6 +1060,110 @@ def verify_user_password(email: str, password: str) -> dict:
     except Exception as e:
         log.warning("verify_user_password failed: %s", e)
         return {"error": "Login failed. Try again."}
+
+
+# ---------------------------------------------------------------------------
+# Password reset (web /forgot + /reset/<token> flow)
+# ---------------------------------------------------------------------------
+# Tokens are 32-byte urlsafe random strings (secrets.token_urlsafe(32)).
+# One-time use, expire 1 hour after creation. Raw string stored in DB —
+# the token itself is the secret. Never log it.
+
+PASSWORD_RESET_TTL_SECONDS = 3600  # 1 hour
+
+
+def create_password_reset_token(email: str) -> Optional[str]:
+    """Create a password-reset token for the given email.
+
+    Returns the token string if a matching user exists, else None.
+    Caller should NOT distinguish between 'sent' and 'no such email' in
+    the response — same message either way, to avoid leaking which
+    emails are registered.
+
+    Wipes any prior un-used reset tokens for the user (only one active
+    reset at a time per user).
+    """
+    try:
+        email = (email or "").strip().lower()
+        if not email or "@" not in email:
+            return None
+        client = get_client()
+        # Look up user
+        res = (
+            client.table("users")
+            .select("id")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        user_id = res.data[0]["id"]
+        # Wipe prior un-used tokens for this user
+        client.table("password_reset_tokens").delete().eq(
+            "user_id", user_id
+        ).is_("used_at", "null").execute()
+        # Generate new token
+        import secrets
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=PASSWORD_RESET_TTL_SECONDS
+        )
+        client.table("password_reset_tokens").insert({
+            "user_id": user_id,
+            "token": token,
+            "expires_at": expires_at.isoformat(),
+        }).execute()
+        return token
+    except Exception as e:
+        log.warning("create_password_reset_token failed: %s", e)
+        return None
+
+
+def consume_password_reset_token(token: str, new_password: str) -> dict:
+    """Validate a reset token and set a new password.
+
+    Returns {"success": True, "email": "..."} | {"error": "..."}.
+    Never raises — login flow must not crash.
+
+    On success: marks token used, hashes new_password with bcrypt, updates
+    users.password_hash + password_set_at, returns the email so the caller
+    can show 'log in with your new password' confirmation.
+    """
+    try:
+        if not token or not new_password or len(new_password) < 8:
+            return {"error": "Invalid link or password (must be 8+ characters)."}
+        client = get_client()
+        # Look up token (without marking used yet)
+        res = (
+            client.table("password_reset_tokens")
+            .select("id, user_id, expires_at, used_at")
+            .eq("token", token)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return {"error": "This reset link is invalid. Request a new one."}
+        row = res.data[0]
+        if row.get("used_at"):
+            return {"error": "This reset link has already been used."}
+        if datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00")) < datetime.now(timezone.utc):
+            return {"error": "This reset link has expired. Request a new one."}
+        # Hash the new password using the existing set_password helper
+        result = set_password(row["user_id"], new_password)
+        if "error" in result:
+            return result
+        # Mark token used
+        client.table("password_reset_tokens").update({
+            "used_at": "now()",
+        }).eq("id", row["id"]).execute()
+        # Return the user's email for the success page
+        user_res = client.table("users").select("email").eq("id", row["user_id"]).limit(1).execute()
+        email = user_res.data[0]["email"] if user_res.data else None
+        return {"success": True, "email": email}
+    except Exception as e:
+        log.warning("consume_password_reset_token failed: %s", e)
+        return {"error": "Couldn't reset password. Try again."}
 
 
 def has_password(user_id: str) -> bool:

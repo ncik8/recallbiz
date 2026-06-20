@@ -233,6 +233,11 @@ body { display: flex; align-items: center; justify-content: center; min-height: 
 <div class="login-wrap">
   <div class="logo">trce.io</div>
   <div class="card login-card">
+    {% if reset_success %}
+    <div style="background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.3); color: var(--accent); padding: 12px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 20px;">
+      Password reset. Sign in with your new password.
+    </div>
+    {% endif %}
     <h1>Welcome back</h1>
     <p class="sub">Sign in to see your contacts, drafts, and referrals.</p>
 
@@ -258,6 +263,7 @@ body { display: flex; align-items: center; justify-content: center; min-height: 
         <input type="password" name="password" placeholder="••••••••" required>
       </div>
       <button class="btn btn-primary" type="submit" style="margin-top: 4px;">Sign in</button>
+      <a href="/forgot" style="font-size: 12px; color: var(--text-3); text-align: center; margin-top: 6px; text-decoration: none;">Forgot password?</a>
     </form>
 
     <div class="qr-option">

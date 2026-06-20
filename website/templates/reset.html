@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set new password — trce.io</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0e;
+    --surface: #16161e;
+    --surface-2: #1e1e28;
+    --border: #2a2a35;
+    --border-strong: #3a3a48;
+    --text: #e8e8ee;
+    --text-2: #8a8a95;
+    --text-3: #5a5a65;
+    --accent: #00ff88;
+    --accent-dim: #00cc6f;
+    --accent-2: #00d4ff;
+    --danger: #ff5555;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font-family: inherit; cursor: pointer; }
+  input {
+    font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 12px 14px;
+    border-radius: 6px;
+    outline: none;
+    width: 100%;
+  }
+  input:focus { border-color: var(--accent); }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.15s;
+    text-decoration: none;
+    width: 100%;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--bg); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 32px; }
+
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 40px 20px; }
+  .login-wrap { max-width: 420px; width: 100%; }
+  .logo { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600; color: var(--accent); margin-bottom: 40px; text-align: center; }
+  .login-card h1 { font-size: 22px; font-weight: 500; margin-bottom: 8px; letter-spacing: -0.01em; }
+  .login-card .sub { color: var(--text-2); font-size: 14px; margin-bottom: 24px; }
+  .email-form { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+  .email-form label { font-size: 12px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace; }
+  .email-form .hint { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+  .error-box {
+    background: rgba(255, 85, 85, 0.08);
+    border: 1px solid rgba(255, 85, 85, 0.3);
+    color: var(--danger);
+    padding: 12px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .back-link {
+    display: block;
+    text-align: center;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="logo">trce.io</div>
+  <div class="card login-card">
+    {% if error %}
+    <h1>Reset link problem</h1>
+    <div class="error-box">{{ error }}</div>
+    <p style="font-size: 13px; color: var(--text-2); margin-top: 16px;">
+      <a href="/forgot">Request a new reset link →</a>
+    </p>
+    {% else %}
+    <h1>Set new password</h1>
+    <p class="sub">Resetting password for <strong>{{ email }}</strong></p>
+    <form class="email-form" action="/reset/{{ token }}" method="POST">
+      <div>
+        <label>New password</label>
+        <input type="password" name="password" placeholder="••••••••" required minlength="8" autofocus>
+        <div class="hint">At least 8 characters.</div>
+      </div>
+      <div>
+        <label>Confirm password</label>
+        <input type="password" name="confirm" placeholder="••••••••" required minlength="8">
+      </div>
+      <button class="btn btn-primary" type="submit" style="margin-top: 4px;">Set new password</button>
+    </form>
+    {% endif %}
+  </div>
+  <a class="back-link" href="/login">← Back to sign in</a>
+</div>
+</body>
+</html>
