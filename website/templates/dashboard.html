@@ -279,24 +279,32 @@
     </div>
   </div>
 
-  <div class="card" style="padding: 16px; margin-bottom: 16px;">
-    <form id="search-form" style="display: flex; gap: 12px; align-items: center; width: 100%; box-sizing: border-box;">
-      <input id="search-input" type="text" placeholder="Search name, handle, company, email…"
-             value="{{ query or '' }}"
-             style="flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 200px;
-                    width: auto; padding: 10px 14px; background: var(--surface-2);
-                    border: 1px solid var(--border); border-radius: 6px;
-                    color: var(--text); font-size: 14px; font-family: 'Inter',sans-serif;
-                    box-sizing: border-box;">
-      <select id="source-filter" style="flex-shrink: 0; padding: 10px 14px; background: var(--surface-2);
-              border: 1px solid var(--border); border-radius: 6px;
-              color: var(--text); font-size: 13px;">
+  <div class="card" style="padding: 20px; margin-bottom: 20px;">
+    <form id="search-form" style="display: flex; gap: 14px; align-items: stretch; width: 100%; box-sizing: border-box;">
+      <div style="flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 400px; position: relative;">
+        <span style="position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: var(--text-3); font-size: 18px; pointer-events: none;">⌕</span>
+        <input id="search-input" type="text" placeholder="Search name, handle, company, email, note…"
+               value="{{ query or '' }}"
+               style="width: 100%; padding: 16px 18px 16px 48px;
+                      background: var(--surface-2); border: 1px solid var(--border-strong);
+                      border-radius: 8px; color: var(--text); font-size: 16px;
+                      font-family: 'Inter',sans-serif; box-sizing: border-box;
+                      transition: border-color 0.15s;"
+               onfocus="this.style.borderColor='var(--accent)'"
+               onblur="this.style.borderColor='var(--border-strong)'">
+      </div>
+      <select id="source-filter"
+              style="flex-shrink: 0; padding: 0 16px; background: var(--surface-2);
+                     border: 1px solid var(--border-strong); border-radius: 8px;
+                     color: var(--text); font-size: 14px; cursor: pointer;
+                     min-height: 52px;">
         <option value="">All sources</option>
         {% for s in sources %}
         <option value="{{ s }}" {% if s == source_filter %}selected{% endif %}>{{ s }}</option>
         {% endfor %}
       </select>
-      <a class="btn btn-ghost" href="/dashboard/download.csv" style="flex-shrink: 0; margin: 0;">⇣ CSV</a>
+      <a class="btn btn-ghost" href="/dashboard/download.csv"
+         style="flex-shrink: 0; margin: 0; min-height: 52px; display: inline-flex; align-items: center;">⇣ CSV</a>
     </form>
   </div>
 
