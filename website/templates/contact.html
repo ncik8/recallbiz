@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact — TRCE</title>
+<meta name="description" content="Get in touch with the TRCE team. Bug reports, feature requests, billing questions.">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0e; --surface:#16161e; --surface-2:#1e1e28;
+          --border:#2a2a35; --text:#e8e8ee; --text-2:#8a8a95;
+          --text-3:#5a5a65; --accent:#00ff88; --danger:#ff5555; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text);
+         min-height:100vh; padding:48px 24px; }
+  .wrap { max-width:600px; margin:0 auto; }
+  .logo { font-family:'JetBrains Mono',monospace; font-size:13px;
+          color:var(--accent); letter-spacing:0.05em; margin-bottom:24px; }
+  h1 { font-size:28px; font-weight:500; margin-bottom:8px;
+       letter-spacing:-0.02em; }
+  .sub { color:var(--text-2); font-size:15px; margin-bottom:32px; line-height:1.6; }
+  .card { background:var(--surface); border:1px solid var(--border);
+          border-radius:12px; padding:32px; }
+  label { display:block; font-size:13px; font-weight:500; margin-bottom:6px;
+          color:var(--text); }
+  label .req { color:var(--accent); }
+  input, textarea, select { width:100%; padding:12px; background:var(--surface-2);
+                            border:1px solid var(--border); border-radius:6px;
+                            color:var(--text); font-size:14px;
+                            font-family:'Inter',sans-serif; margin-bottom:20px; }
+  input:focus, textarea:focus, select:focus { outline:none;
+                                                border-color:var(--accent); }
+  textarea { min-height:140px; resize:vertical; line-height:1.5; }
+  button { width:100%; padding:14px; background:var(--accent); color:#0a0a0e;
+           border:none; border-radius:8px; font-size:15px; font-weight:600;
+           cursor:pointer; }
+  button:hover { background:#00dd77; }
+  button:disabled { background:var(--surface-2); color:var(--text-3);
+                    cursor:not-allowed; }
+  .err { background:rgba(255,85,85,0.12); color:var(--danger); padding:12px;
+         border-radius:6px; font-size:13px; margin-bottom:16px;
+         border:1px solid rgba(255,85,85,0.3); }
+  .ok { background:rgba(0,255,136,0.12); color:var(--accent); padding:12px;
+         border-radius:6px; font-size:13px; margin-bottom:16px;
+         border:1px solid rgba(0,255,136,0.3); }
+  .small { font-size:12px; color:var(--text-3); margin-top:-12px; margin-bottom:20px; }
+  .back { display:inline-block; margin-top:32px; color:var(--text-3);
+          font-size:13px; text-decoration:none; }
+  .back:hover { color:var(--text-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">TRCE · CONTACT</div>
+  <h1>Get in touch</h1>
+  <p class="sub">Bug reports, feature requests, billing questions, partnership inquiries — we read everything. We aim to reply within 48 hours on business days.</p>
+
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  {% if success %}<div class="ok">Thanks — your message landed. We'll reply within 48 hours.</div>{% endif %}
+
+  <form action="/contact" method="POST" class="card">
+    <label for="name">Your name <span class="req">*</span></label>
+    <input type="text" id="name" name="name" required maxlength="100"
+           value="{{ prefill_name or '' }}">
+
+    <label for="email">Your email <span class="req">*</span></label>
+    <input type="email" id="email" name="email" required maxlength="200"
+           value="{{ prefill_email or '' }}">
+    <div class="small">We reply to this address. Never shared.</div>
+
+    <label for="topic">What's it about? <span class="req">*</span></label>
+    <select id="topic" name="topic" required>
+      <option value="">Pick one…</option>
+      <option value="bug">Bug report</option>
+      <option value="feature">Feature request</option>
+      <option value="billing">Billing question</option>
+      <option value="account">Account / login issue</option>
+      <option value="partnership">Partnership / press</option>
+      <option value="other">Other</option>
+    </select>
+
+    <label for="message">Message <span class="req">*</span></label>
+    <textarea id="message" name="message" required maxlength="5000"
+              placeholder="Tell us what's up. For bugs, please describe what you did, what you expected, and what actually happened."></textarea>
+
+    <button type="submit">Send message</button>
+  </form>
+
+  <a class="back" href="/">← Back to home</a>
+</div>
+</body>
+</html>

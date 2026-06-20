@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accept Terms — TRCE</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0e; --surface:#16161e; --surface-2:#1e1e28;
+          --border:#2a2a35; --text:#e8e8ee; --text-2:#8a8a95;
+          --text-3:#5a5a65; --accent:#00ff88; --danger:#ff5555; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text);
+         min-height:100vh; display:flex; align-items:center; justify-content:center;
+         padding:24px; }
+  .card { background:var(--surface); border:1px solid var(--border);
+          border-radius:12px; padding:40px; max-width:520px; width:100%; }
+  .logo { font-family:'JetBrains Mono',monospace; font-size:13px;
+          color:var(--accent); letter-spacing:0.05em; margin-bottom:24px; }
+  h1 { font-size:24px; font-weight:500; margin-bottom:8px;
+       letter-spacing:-0.01em; }
+  .sub { color:var(--text-2); font-size:14px; margin-bottom:32px; line-height:1.6; }
+  .check { display:flex; gap:12px; padding:16px; background:var(--surface-2);
+           border:1px solid var(--border); border-radius:8px; margin-bottom:12px;
+           cursor:pointer; transition:border-color 0.15s; }
+  .check:hover { border-color:var(--accent); }
+  .check input { margin-top:2px; cursor:pointer; accent-color:var(--accent);
+                 width:18px; height:18px; flex-shrink:0; }
+  .check-text { flex:1; }
+  .check-text strong { display:block; font-size:14px; font-weight:500;
+                       margin-bottom:4px; color:var(--text); }
+  .check-text a { font-size:13px; color:var(--accent); text-decoration:none; }
+  .check-text a:hover { text-decoration:underline; }
+  .check-text span { font-size:12px; color:var(--text-3); display:block; margin-top:4px; }
+  button { width:100%; padding:14px; background:var(--accent); color:#0a0a0e;
+           border:none; border-radius:8px; font-size:15px; font-weight:600;
+           cursor:pointer; margin-top:16px; }
+  button:hover { background:#00dd77; }
+  button:disabled { background:var(--surface-2); color:var(--text-3);
+                    cursor:not-allowed; }
+  .err { background:rgba(255,85,85,0.12); color:var(--danger); padding:12px;
+         border-radius:6px; font-size:13px; margin-bottom:16px;
+         border:1px solid rgba(255,85,85,0.3); }
+  .logout { text-align:center; margin-top:24px; }
+  .logout a { color:var(--text-3); font-size:12px; text-decoration:none; }
+  .logout a:hover { color:var(--text-2); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">TRCE · CONSENT</div>
+  <h1>One quick thing before you start</h1>
+  <p class="sub">We need you to agree to our terms and privacy policy before using TRCE. It takes 10 seconds — just two checkboxes.</p>
+
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+  <form action="/consent" method="POST" id="consent-form">
+    <label class="check">
+      <input type="checkbox" name="accept_tos" id="tos" value="1">
+      <div class="check-text">
+        <strong>I agree to the Terms of Service</strong>
+        <a href="/terms" target="_blank">Read the Terms →</a>
+        <span>How billing works, what you can/can't do, our liability cap.</span>
+      </div>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="accept_privacy" id="privacy" value="1">
+      <div class="check-text">
+        <strong>I agree to the Privacy Policy</strong>
+        <a href="/privacy" target="_blank">Read the Privacy Policy →</a>
+        <span>What we collect, how we use it, your data rights.</span>
+      </div>
+    </label>
+
+    <button type="submit" id="submit-btn" disabled>Accept and continue →</button>
+  </form>
+
+  <div class="logout">
+    <a href="/logout">Log out instead</a>
+  </div>
+</div>
+
+<script>
+  const tos = document.getElementById('tos');
+  const privacy = document.getElementById('privacy');
+  const btn = document.getElementById('submit-btn');
+  function update() {
+    btn.disabled = !(tos.checked && privacy.checked);
+  }
+  tos.addEventListener('change', update);
+  privacy.addEventListener('change', update);
+</script>
+</body>
+</html>

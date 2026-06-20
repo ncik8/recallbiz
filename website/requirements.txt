@@ -3,3 +3,4 @@ gunicorn==22.0.0
 supabase==2.10.0
 bcrypt==4.2.0
 stripe==11.5.0
+resend==2.6.0

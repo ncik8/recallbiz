@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms of Service — TRCE</title>
+<meta name="description" content="TRCE Terms of Service. Plain English rules for using TRCE (Telegram bot + web dashboard).">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0e; --surface:#16161e; --border:#2a2a35;
+          --text:#e8e8ee; --text-2:#8a8a95; --text-3:#5a5a65; --accent:#00ff88; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text);
+         line-height:1.7; padding:48px 24px; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size:32px; font-weight:600; margin-bottom:8px; letter-spacing:-0.02em; }
+  .meta { color:var(--text-3); font-size:13px; margin-bottom:40px; }
+  h2 { font-size:20px; font-weight:600; margin-top:40px; margin-bottom:12px;
+       color:var(--accent); }
+  p { margin-bottom:16px; color:var(--text-2); }
+  ul, ol { margin: 0 0 16px 24px; color:var(--text-2); }
+  li { margin-bottom:8px; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .back { display:inline-block; margin-top:40px; padding:10px 18px;
+          border:1px solid var(--border); border-radius:6px; color:var(--text);
+          background:var(--surface); }
+  .back:hover { background:var(--surface); text-decoration:none; }
+  .box { background:var(--surface); border:1px solid var(--border);
+         border-radius:8px; padding:20px; margin:24px 0; }
+  .box strong { color:var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Terms of Service</h1>
+  <div class="meta">Last updated: June 20, 2026 · TRCE (trce.io)</div>
+
+  <p>These Terms govern your use of TRCE, including our Telegram bot (@trceiobot), website at trce.io, and any related services. By creating an account or using TRCE, you agree to these Terms.</p>
+
+  <p>TRCE is a contact memory tool. You send us names, emails, phone numbers, business card photos, and notes about people you meet. We store them, let you search and edit them, and that's it. Plain language below.</p>
+
+  <h2>1. Your account</h2>
+  <p>You're responsible for your account credentials (your email and password). Don't share your password. If someone else logs in as you, anything they do is on you.</p>
+  <p>You must be 16 or older to use TRCE.</p>
+
+  <h2>2. What you can do</h2>
+  <ul>
+    <li>Store personal contact information for people you've met or corresponded with.</li>
+    <li>Forward business cards (photo, QR, text) to the Telegram bot for AI extraction.</li>
+    <li>Edit, search, download, and delete your own contacts through the web dashboard.</li>
+    <li>Export your data as CSV at any time.</li>
+  </ul>
+
+  <h2>3. What you can't do</h2>
+  <ul>
+    <li>Don't use TRCE to stalk, harass, or surveil people.</li>
+    <li>Don't store sensitive personal data you shouldn't have (financial account numbers, government IDs, medical records, passwords).</li>
+    <li>Don't try to break the service, scrape it at industrial scale, or reverse-engineer the AI extraction.</li>
+    <li>Don't impersonate other people or create fake contact entries designed to mislead.</li>
+    <li>Don't use TRCE to violate any law that applies to you.</li>
+  </ul>
+  <p>We may suspend or terminate accounts that violate these rules.</p>
+
+  <h2>4. Your data is yours</h2>
+  <p>You own the contacts you store. We don't sell, rent, or share your contact data with third parties for advertising or marketing. Our AI processes your cards and notes to extract structured fields; we don't train external models on your data.</p>
+  <p>Sub-processors (services that touch your data to make TRCE work):
+    <ul>
+      <li><strong>Supabase</strong> — Postgres database hosting (Singapore region).</li>
+      <li><strong>Stripe</strong> — payment processing for Pro subscriptions.</li>
+      <li><strong>Resend</strong> — transactional email (magic links, receipts, contact-form submissions).</li>
+      <li><strong>Cloudflare</strong> — DNS, CDN, DDoS protection.</li>
+      <li><strong>Railway</strong> — application hosting.</li>
+    </ul>
+  </p>
+  <p>You can delete your account and all associated contacts at any time by emailing us at <a href="mailto:hello@contact.trce.io">hello@contact.trce.io</a>. We complete deletions within 30 days.</p>
+
+  <h2>5. The free plan</h2>
+  <p>Free accounts are limited to 10 contacts. Pro accounts ($9.99/month or $99/year) have effectively unlimited contacts (fair use cap of 10,000). We may change pricing with 30 days notice via email.</p>
+
+  <h2>6. Payments and refunds</h2>
+  <p>Pro subscriptions are billed monthly or annually via Stripe. You can cancel any time from the dashboard; you'll keep Pro access until the end of your current billing period, then drop to Free.</p>
+  <p>Refunds: we offer a 14-day money-back guarantee on first-time Pro subscriptions. After that, no refunds for partial months/years. Email <a href="mailto:hello@contact.trce.io">hello@contact.trce.io</a> for refund requests.</p>
+
+  <h2>7. Service availability</h2>
+  <p>TRCE is provided "as is". We work hard to keep it running but don't guarantee 100% uptime. We're a small team — outages may happen. We aim to respond to support emails within 48 hours on business days.</p>
+  <p>If we shut down TRCE entirely, we'll give all paying users 60 days notice and a way to export their data.</p>
+
+  <h2>8. AI-generated content</h2>
+  <p>TRCE uses AI to extract contact details from business card photos, screenshots, and forwarded text. AI can make mistakes — always review extracted data before saving. We're not liable for losses caused by incorrect AI extraction (wrong phone number, missed email, etc).</p>
+
+  <h2>9. Limitation of liability</h2>
+  <p>To the maximum extent allowed by law, TRCE's total liability to you for any claim is capped at the amount you paid us in the 12 months before the claim. We're not liable for indirect, incidental, or consequential damages.</p>
+
+  <h2>10. Changes to these Terms</h2>
+  <p>We may update these Terms. We'll email you at least 14 days before material changes take effect. Continued use after that means you accept the new Terms.</p>
+
+  <h2>11. Governing law</h2>
+  <p>These Terms are governed by the laws of Hong Kong SAR. Disputes will be resolved in Hong Kong courts.</p>
+
+  <h2>12. Contact</h2>
+  <p>Questions about these Terms? Email <a href="mailto:hello@contact.trce.io">hello@contact.trce.io</a> or use the <a href="/contact">contact form</a>.</p>
+
+  <a class="back" href="/">← Back to home</a>
+</div>
+</body>
+</html>

@@ -243,7 +243,7 @@
   <div class="stat-row">
     <div class="card stat-card">
       <div class="stat-label">Total contacts</div>
-      <div class="stat-value">{{ contacts|length }}</div>
+      <div class="stat-value" id="contact-count">{{ contacts|length }}</div>
       <div class="stat-delta">{% if plan_label == "Pro" %}unlimited (fair use 10k){% elif plan_label == "Tester" %}unlimited · tester access{% else %}free plan cap: 10{% endif %}</div>
     </div>
     <div class="card stat-card">
@@ -258,9 +258,35 @@
     </div>
   </div>
 
+  <div class="card" style="padding: 16px; margin-bottom: 16px;">
+    <form id="search-form" style="display: flex; gap: 12px; align-items: center;">
+      <input id="search-input" type="text" placeholder="Search name, handle, company, email…"
+             value="{{ query or '' }}"
+             style="flex: 1; padding: 10px 14px; background: var(--surface-2);
+                    border: 1px solid var(--border); border-radius: 6px;
+                    color: var(--text); font-size: 14px; font-family: 'Inter',sans-serif;">
+      <select id="source-filter" style="padding: 10px 14px; background: var(--surface-2);
+              border: 1px solid var(--border); border-radius: 6px;
+              color: var(--text); font-size: 13px;">
+        <option value="">All sources</option>
+        {% for s in sources %}
+        <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+      </select>
+      <a class="btn btn-ghost" href="/dashboard/download.csv" style="margin: 0;">Download CSV</a>
+      {% if plan == "pro" %}
+      <form action="/billing-portal" method="POST" style="margin: 0;">
+        <button type="submit" class="btn" style="margin: 0; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);">Cancel Pro</button>
+      </form>
+      {% else %}
+      <a class="btn btn-primary" href="/pricing.html" style="margin: 0;">Upgrade to Pro</a>
+      {% endif %}
+    </form>
+  </div>
+
   <div class="card" style="padding: 0; overflow: hidden;">
     {% if contacts %}
-    <table class="contact-table">
+    <table class="contact-table" id="contact-table">
       <thead>
         <tr>
           <th>Name</th>
@@ -273,7 +299,7 @@
       </thead>
       <tbody>
         {% for c in contacts %}
-        <tr>
+        <tr data-source="{{ c.source or 'unknown' }}">
           <td>
             <div class="contact-name">
               <div class="contact-avatar">{{ c.initials }}</div>
@@ -301,6 +327,50 @@
     </div>
     {% endif %}
   </div>
+
+  <footer style="margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border);
+                 text-align: center; color: var(--text-3); font-size: 12px;">
+    <a href="/terms" style="color: var(--text-3); text-decoration: none; margin: 0 12px;">Terms</a>·
+    <a href="/privacy" style="color: var(--text-3); text-decoration: none; margin: 0 12px;">Privacy</a>·
+    <a href="/contact" style="color: var(--text-3); text-decoration: none; margin: 0 12px;">Contact</a>
+    <div style="margin-top: 12px;">© 2026 TRCE · Your AI PA</div>
+  </footer>
 </main>
+
+<script>
+// Live search + source filter (client-side, no server roundtrip per keystroke)
+(function() {
+  const searchInput = document.getElementById('search-input');
+  const sourceFilter = document.getElementById('source-filter');
+  const table = document.getElementById('contact-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const allRows = Array.from(tbody.querySelectorAll('tr'));
+  const counter = document.getElementById('contact-count');
+
+  function applyFilters() {
+    const q = (searchInput.value || '').toLowerCase().trim();
+    const src = sourceFilter.value;
+    let visible = 0;
+    allRows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const rowSrc = row.getAttribute('data-source') || '';
+      const matchQ = !q || text.includes(q);
+      const matchS = !src || rowSrc === src;
+      const show = matchQ && matchS;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (counter) counter.textContent = visible;
+  }
+
+  let timer;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(applyFilters, 80);
+  });
+  sourceFilter.addEventListener('change', applyFilters);
+})();
+</script>
 </body>
 </html>

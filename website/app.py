@@ -95,6 +95,52 @@ def _require_login():
     return None
 
 
+def _require_consent():
+    """Redirect to /consent if user hasn't accepted T&C + Privacy yet.
+
+    Called after _require_login. Returns redirect response or None.
+    Admins (is_tester=True) bypass this so QA can test dashboards without
+    re-accepting every deploy.
+    """
+    user_id = _current_user_id()
+    if not user_id:
+        return redirect(url_for("login_get"))
+    user = db.get_user_by_id(user_id) or {}
+    if user.get("is_tester"):
+        return None  # testers bypass
+    if user.get("accepted_tos_at") and user.get("accepted_privacy_at"):
+        return None
+    return redirect(url_for("consent_get"))
+
+
+@app.route("/consent", methods=["GET", "POST"])
+def consent_get():
+    """Show T&C + Privacy consent page. POST records acceptance in DB."""
+    if (r := _require_login()):
+        return r
+    if request.method == "POST":
+        tos = request.form.get("accept_tos") == "1"
+        privacy = request.form.get("accept_privacy") == "1"
+        if not (tos and privacy):
+            return render_template("consent.html",
+                                   error="Please tick both boxes to continue.")
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            db.get_client().table("users").update({
+                "accepted_tos_at": now,
+                "accepted_privacy_at": now,
+                "accepted_via": "web",
+            }).eq("id", _current_user_id()).execute()
+        except Exception as e:
+            app.logger.exception("consent update failed")
+            return render_template("consent.html",
+                                   error="Could not save acceptance. Try again.")
+        return redirect("/dashboard")
+    # GET: show the page (testers see it too but it's quick)
+    return render_template("consent.html")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login_get():
     """GET: show form. POST: verify password and set session."""
@@ -155,6 +201,8 @@ def _initials(name):
 def dashboard():
     if (r := _require_login()):
         return r
+    if (r := _require_consent()):
+        return r
     user_id = _current_user_id()
     user = db.get_user_by_id(user_id) or {}
     plan = user.get("plan") or "free"
@@ -167,6 +215,20 @@ def dashboard():
     else:
         plan_label = "Free"
     contacts_raw = db.list_user_contacts(user_id)
+
+    # Optional server-side search via ?q= (case-insensitive substring across
+    # name, handle, company, title, email, phone, notes, website).
+    # Client-side filter handles fast typing; this is the source of truth for
+    # the initial render and works without JS.
+    query = (request.args.get("q") or "").strip().lower()
+    if query:
+        def _matches(c):
+            haystack = " ".join(str(c.get(k) or "") for k in
+                                ("name", "handle", "company", "title",
+                                 "email", "phone", "notes", "website")).lower()
+            return query in haystack
+        contacts_raw = [c for c in contacts_raw if _matches(c)]
+
     contacts = [
         {
             **c,
@@ -175,13 +237,18 @@ def dashboard():
         }
         for c in contacts_raw
     ]
+    # Build source-filter list (only sources that actually exist for this user)
+    all_sources = sorted({c.get("source") or "unknown" for c in contacts_raw})
     show_deleted_flash = request.args.get("deleted") == "1"
     return render_template(
         "dashboard.html",
         user_email=user.get("email") or session.get("email") or "",
         user_initial=_initials(user.get("display_name") or user.get("email") or "?"),
         plan_label=plan_label,
+        plan=plan,
         contacts=contacts,
+        sources=all_sources,
+        query=query,
         show_deleted_flash=show_deleted_flash,
     )
 
@@ -189,6 +256,8 @@ def dashboard():
 @app.route("/dashboard/edit/<contact_id>", methods=["GET", "POST"])
 def edit_contact(contact_id):
     if (r := _require_login()):
+        return r
+    if (r := _require_consent()):
         return r
     user_id = _current_user_id()
     client = db.get_client()
@@ -227,6 +296,8 @@ def delete_contact_route(contact_id):
     Two-step on purpose: forces a deliberate click, no accidental deletes.
     """
     if (r := _require_login()):
+        return r
+    if (r := _require_consent()):
         return r
     user_id = _current_user_id()
 
@@ -297,6 +368,8 @@ DELETE_CONFIRM_HTML = """<!DOCTYPE html>
 @app.route("/dashboard/download.csv")
 def download_csv():
     if (r := _require_login()):
+        return r
+    if (r := _require_consent()):
         return r
     user_id = _current_user_id()
     contacts = db.list_user_contacts(user_id, limit=10000)
@@ -514,6 +587,116 @@ def upgrade_web():
         app.logger.exception("create_checkout_session failed")
         return {"error": "Could not create checkout session"}, 500
 
+    return redirect(url, code=303)
+
+
+# ============== LEGAL ==============
+
+@app.route("/terms")
+def terms_page():
+    return render_template("terms.html")
+
+
+@app.route("/privacy")
+def privacy_page():
+    return render_template("privacy.html")
+
+
+# ============== CONTACT FORM ==============
+
+@app.route("/contact", methods=["GET", "POST"])
+def contact_form():
+    """Public contact form — sends email to support@contact.trce.io via Resend."""
+    prefill_name = ""
+    prefill_email = ""
+    if _current_user_id():
+        user = db.get_user_by_id(_current_user_id()) or {}
+        prefill_name = user.get("display_name") or ""
+        prefill_email = user.get("email") or ""
+
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        email = (request.form.get("email") or "").strip()
+        topic = (request.form.get("topic") or "").strip()
+        message = (request.form.get("message") or "").strip()
+
+        if not (name and email and topic and message):
+            return render_template("contact.html",
+                                   error="Please fill all fields.",
+                                   prefill_name=name, prefill_email=email)
+        if "@" not in email or "." not in email:
+            return render_template("contact.html",
+                                   error="That email address looks off.",
+                                   prefill_name=name, prefill_email=email)
+
+        # Send via Resend
+        try:
+            import resend
+            resend.api_key = os.environ.get("RESEND_API_KEY", "")
+            if not resend.api_key:
+                raise RuntimeError("RESEND_API_KEY not set on server")
+
+            html_body = f"""
+            <h2>New contact form submission</h2>
+            <p><strong>From:</strong> {name} &lt;{email}&gt;</p>
+            <p><strong>Topic:</strong> {topic}</p>
+            <hr>
+            <p>{message.replace(chr(10), '<br>')}</p>
+            <hr>
+            <p style="color:#888;font-size:12px;">
+              Sent from trce.io/contact at {datetime.now(timezone.utc).isoformat()}
+            </p>
+            """
+            resend.Emails.send({
+                "from": os.environ.get("FROM_EMAIL", "TRCE <hello@contact.trce.io>"),
+                "to": ["hello@contact.trce.io"],
+                "reply_to": email,
+                "subject": f"[TRCE contact] {topic} — {name}",
+                "html": html_body,
+            })
+        except Exception as e:
+            app.logger.exception("contact form email failed")
+            return render_template("contact.html",
+                                   error="Couldn't send right now. Email hello@contact.trce.io directly.",
+                                   prefill_name=name, prefill_email=email)
+
+        return render_template("contact.html", success=True)
+
+    return render_template("contact.html",
+                           prefill_name=prefill_name,
+                           prefill_email=prefill_email)
+
+
+# ============== STRIPE BILLING PORTAL ==============
+
+@app.route("/billing-portal", methods=["POST"])
+def billing_portal():
+    """Open Stripe's hosted billing portal where users can cancel their sub.
+
+    Requires the user to have an active stripe_customer_id. If not, returns
+    a friendly error directing them to /pricing.
+    """
+    if (r := _require_login()):
+        return r
+    user_id = _current_user_id()
+    user = db.get_user_by_id(user_id) or {}
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        return render_template_string(
+            "<h1>No active subscription</h1>"
+            "<p>You don't have a Stripe customer record yet.</p>"
+            "<p><a href='/pricing'>See plans</a> · <a href='/dashboard'>Back to dashboard</a></p>"
+        ), 400
+    if not stripe_billing.is_configured():
+        return {"error": "Stripe not configured"}, 503
+    try:
+        url = stripe_billing.create_billing_portal_session(
+            customer_id=customer_id,
+            return_url="https://trce.io/dashboard",
+        )
+    except Exception as e:
+        app.logger.exception("billing portal session failed")
+        return {"error": "Could not open billing portal"}, 500
     return redirect(url, code=303)
 
 
