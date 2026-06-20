@@ -1,0 +1,7 @@
+# Force Railway web service to use a Dockerfile instead of Nixpacks.
+# Nixpacks auto-detects poorly for this monorepo (missing bot/ dir,
+# synthetic requirements.txt). Custom Dockerfile copies whole repo.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.web"
