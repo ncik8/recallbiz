@@ -27,8 +27,23 @@ from flask import (
 )
 
 # Make the bot's db.py importable from the website service (Railway monorepo).
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bot"))
+# WORKDIR varies across deploys (Nixpacks sets /app/, but the bot dir may be at
+# /app/bot/ or elsewhere). Search for the bot directory by looking for db.py.
+_bot_dir_candidates = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bot"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot"),
+    "/app/bot",
+]
+for _candidate in _bot_dir_candidates:
+    _candidate_abs = os.path.abspath(_candidate)
+    if os.path.isfile(os.path.join(_candidate_abs, "db.py")):
+        sys.path.insert(0, _candidate_abs)
+        break
+
 import db  # noqa: E402
+# Explicit top-level import of stripe so Railway Nixpacks installs it.
+# stripe_billing is the actual user; this is just to make the dep visible.
+import stripe  # noqa: E402, F401
 from services import stripe_billing  # noqa: E402
 
 app = Flask(__name__, static_folder=None)
