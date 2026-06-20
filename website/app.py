@@ -292,22 +292,58 @@ def reset(token):
 # ============== DASHBOARD ==============
 
 def _humanize_when(iso_str):
-    """Compact relative time for the dashboard table."""
+    """Compact relative time for the dashboard table. Handles both past
+    (e.g. "saved 5m ago") and future (e.g. "period ends in 11mo") timestamps.
+
+    Past:
+      < 60s   -> "just now"
+      < 1h    -> "Nm ago"
+      < 24h   -> "Nh ago"
+      < 7d    -> "Nd ago"
+      else    -> "YYYY-MM-DD"
+
+    Future (delta is negative):
+      < 60s   -> "in <1m"
+      < 1h    -> "in Nm"
+      < 24h   -> "in Nh"
+      < 7d    -> "in Nd"
+      < 30d   -> "in Nw"
+      < 365d  -> "in Nmo"
+      else    -> "YYYY-MM-DD"
+    """
     if not iso_str:
         return "—"
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        delta = datetime.now(timezone.utc) - dt
+        delta = dt - datetime.now(timezone.utc)
         secs = int(delta.total_seconds())
-        if secs < 60:
-            return "just now"
-        if secs < 3600:
-            return f"{secs // 60}m ago"
-        if secs < 86400:
-            return f"{secs // 3600}h ago"
-        if secs < 604800:
-            return f"{secs // 86400}d ago"
-        return dt.strftime("%Y-%m-%d")
+        if secs >= 0:
+            # Future
+            if secs < 60:
+                return "in <1m"
+            if secs < 3600:
+                return f"in {secs // 60}m"
+            if secs < 86400:
+                return f"in {secs // 3600}h"
+            if secs < 604800:
+                return f"in {secs // 86400}d"
+            if secs < 2592000:
+                return f"in {secs // 604800}w"
+            if secs < 31536000:
+                return f"in {secs // 2592000}mo"
+            return dt.strftime("%Y-%m-%d")
+        else:
+            # Past
+            abs_secs = -secs
+            if abs_secs < 60:
+                return "just now"
+            if abs_secs < 3600:
+                return f"{abs_secs // 60}m ago"
+            if abs_secs < 86400:
+                return f"{abs_secs // 3600}h ago"
+            if abs_secs < 604800:
+                return f"{abs_secs // 86400}d ago"
+            return dt.strftime("%Y-%m-%d")
     except Exception:
         return iso_str[:10] if iso_str else "—"
 
