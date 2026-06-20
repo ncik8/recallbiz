@@ -244,7 +244,7 @@
     <div class="card stat-card">
       <div class="stat-label">Total contacts</div>
       <div class="stat-value">{{ contacts|length }}</div>
-      <div class="stat-delta">{% if plan_label == "Pro" %}unlimited (fair use 10k){% else %}free plan cap: 10{% endif %}</div>
+      <div class="stat-delta">{% if plan_label == "Pro" %}unlimited (fair use 10k){% elif plan_label == "Tester" %}unlimited · tester access{% else %}free plan cap: 10{% endif %}</div>
     </div>
     <div class="card stat-card">
       <div class="stat-label">Signed in as</div>

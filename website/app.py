@@ -158,7 +158,14 @@ def dashboard():
     user_id = _current_user_id()
     user = db.get_user_by_id(user_id) or {}
     plan = user.get("plan") or "free"
-    plan_label = "Pro" if plan in ("pro", "tester") else "Free"
+    # Distinct labels: Free | Pro | Tester. Testers should NOT see "Pro" since
+    # they're not paying — they're internal/QA accounts with full access.
+    if plan == "tester":
+        plan_label = "Tester"
+    elif plan == "pro":
+        plan_label = "Pro"
+    else:
+        plan_label = "Free"
     contacts_raw = db.list_user_contacts(user_id)
     contacts = [
         {
