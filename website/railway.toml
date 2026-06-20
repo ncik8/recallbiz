@@ -1,7 +1,0 @@
-# Force Railway to use website/Dockerfile instead of Nixpacks auto-detection.
-# Without this, Nixpacks builds a synthetic image that doesn't include bot/
-# and uses a minimal requirements.txt.
-
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "website/Dockerfile"
