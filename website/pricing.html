@@ -253,10 +253,16 @@
       <li>Referral earnings (30% × 3 months)</li>
       <li class="disabled">Team workspace</li>
     </ul>
-    <form action="/upgrade" method="POST" style="margin: 0;">
-      <input type="hidden" name="interval" value="monthly">
-      <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Upgrade to Pro</button>
-    </form>
+    <div style="display: flex; flex-direction: column; gap: 8px; margin: 0;">
+      <form action="/upgrade" method="POST" style="margin: 0;">
+        <input type="hidden" name="interval" value="monthly">
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Upgrade monthly · $9.99/mo</button>
+      </form>
+      <form action="/upgrade" method="POST" style="margin: 0;">
+        <input type="hidden" name="interval" value="annual">
+        <button type="submit" class="btn" style="width: 100%; justify-content: center; background: var(--surface-2); border: 1px solid var(--border);">Upgrade annual · $99/yr · save $20</button>
+      </form>
+    </div>
   </div>
 
   <div class="card tier">
