@@ -1085,6 +1085,7 @@ def set_user_plan(
     subscription_status: Optional[str] = None,
     subscription_period_end: Optional[str] = None,
     pro_since: Optional[str] = None,
+    cancel_at_period_end: Optional[bool] = None,
 ) -> bool:
     """Set a user's plan tier + optional Stripe identifiers. Idempotent.
 
@@ -1118,6 +1119,8 @@ def set_user_plan(
             update["subscription_period_end"] = subscription_period_end
         if pro_since is not None:
             update["pro_since"] = pro_since
+        if cancel_at_period_end is not None:
+            update["cancel_at_period_end"] = cancel_at_period_end
         client.table("users").update(update).eq("id", user_id).execute()
         return True
     except Exception as e:
@@ -1204,7 +1207,8 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
         res = (
             get_client().table("users")
             .select("id, email, email_verified, plan, is_tester, display_name, "
-                    "stripe_customer_id, subscription_status, stripe_subscription_id")
+                    "stripe_customer_id, subscription_status, stripe_subscription_id, "
+                    "subscription_period_end, cancel_at_period_end")
             .eq("id", user_id)
             .limit(1)
             .execute()

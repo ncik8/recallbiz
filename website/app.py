@@ -244,6 +244,10 @@ def dashboard():
     # Build source-filter list (only sources that actually exist for this user)
     all_sources = sorted({c.get("source") or "unknown" for c in contacts_raw})
     show_deleted_flash = request.args.get("deleted") == "1"
+    # Subscription state for banner: True when user canceled but kept access
+    # until period end (Stripe's standard cancel-at-period-end flow).
+    cancel_at_period_end = bool(user.get("cancel_at_period_end"))
+    subscription_period_end = user.get("subscription_period_end")
     return render_template(
         "dashboard.html",
         user_email=user.get("email") or session.get("email") or "",
@@ -255,6 +259,9 @@ def dashboard():
         query=query,
         source_filter=source_filter,
         show_deleted_flash=show_deleted_flash,
+        cancel_at_period_end=cancel_at_period_end,
+        subscription_period_end=subscription_period_end,
+        sub_period_end_human=_humanize_when(subscription_period_end) if subscription_period_end else None,
     )
 
 
@@ -499,6 +506,7 @@ def _handle_stripe_event(etype, obj):
     elif etype == "customer.subscription.updated":
         sub_id = getattr(obj, "id", None)
         status = getattr(obj, "status", None)
+        cancel_at_period_end = getattr(obj, "cancel_at_period_end", False)
         period_end = None
         if getattr(obj, "current_period_end", None):
             period_end = datetime.fromtimestamp(
@@ -515,7 +523,18 @@ def _handle_stripe_event(etype, obj):
             stripe_subscription_id=sub_id,
             subscription_status=status,
             subscription_period_end=period_end,
+            cancel_at_period_end=cancel_at_period_end,
         )
+        # Clear cancel flag when subscription is fully canceled (Stripe sends
+        # status='canceled' here, not via customer.subscription.deleted).
+        if status == "canceled":
+            db.set_user_plan(
+                user_id,
+                "free",
+                stripe_subscription_id=None,
+                subscription_status="canceled",
+                cancel_at_period_end=False,
+            )
 
     elif etype == "customer.subscription.deleted":
         sub_id = getattr(obj, "id", None)

@@ -219,8 +219,8 @@
     <a class="sidebar-link" href="/pricing.html"><span class="icon">★</span> Upgrade</a>
     {% if plan == "pro" %}
     <form action="/billing-portal" method="POST" style="margin: 8px 0 0 0;">
-      <button type="submit" class="sidebar-link sidebar-link-danger" style="width: 100%; background: transparent; border: 1px solid transparent; text-align: left; cursor: pointer; font-size: 14px;">
-        <span class="icon">⊘</span> Cancel Pro
+      <button type="submit" class="sidebar-link" style="width: 100%; background: transparent; border: 1px solid transparent; text-align: left; cursor: pointer; font-size: 14px;">
+        <span class="icon">⚙</span> {% if cancel_at_period_end %}Manage subscription{% else %}Cancel Pro{% endif %}
       </button>
     </form>
     {% endif %}
@@ -246,6 +246,17 @@
   {% if show_deleted_flash %}
   <div style="background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.3); color: var(--accent); padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 20px;">
     Contact deleted.
+  </div>
+  {% endif %}
+
+  {% if plan == "pro" and cancel_at_period_end %}
+  <div style="background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.4); color: var(--warning); padding: 14px 18px; border-radius: 6px; font-size: 14px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px;">
+    <span style="font-size: 20px;">⏳</span>
+    <div style="flex: 1;">
+      <strong>Pro ends {{ sub_period_end_human or "at the end of your billing period" }}.</strong>
+      <span style="color: var(--text-2); margin-left: 6px;">You'll switch back to Free and keep up to 10 contacts.</span>
+    </div>
+    <a class="btn btn-ghost" href="/pricing.html" style="color: var(--warning); border-color: rgba(255, 170, 0, 0.4);">Re-subscribe</a>
   </div>
   {% endif %}
 
