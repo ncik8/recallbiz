@@ -221,6 +221,7 @@ def dashboard():
     # Client-side filter handles fast typing; this is the source of truth for
     # the initial render and works without JS.
     query = (request.args.get("q") or "").strip().lower()
+    source_filter = (request.args.get("source") or "").strip()
     if query:
         def _matches(c):
             haystack = " ".join(str(c.get(k) or "") for k in
@@ -228,6 +229,9 @@ def dashboard():
                                  "email", "phone", "notes", "website")).lower()
             return query in haystack
         contacts_raw = [c for c in contacts_raw if _matches(c)]
+    if source_filter:
+        contacts_raw = [c for c in contacts_raw
+                        if (c.get("source") or "unknown") == source_filter]
 
     contacts = [
         {
@@ -249,6 +253,7 @@ def dashboard():
         contacts=contacts,
         sources=all_sources,
         query=query,
+        source_filter=source_filter,
         show_deleted_flash=show_deleted_flash,
     )
 
