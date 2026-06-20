@@ -3,11 +3,13 @@ import os
 import re
 import asyncio
 import logging
+from typing import Optional
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     MessageHandler,
     filters,
     ContextTypes,
@@ -22,6 +24,7 @@ from db import (
 from ocr import try_decode_qr, parse_telegram_qr
 from ai import interpret_card_edit
 from ai import extract_card_from_image, handle_conversation
+from services import stripe_billing
 
 
 async def _resolve_user_id(update, context) -> str:
@@ -84,6 +87,106 @@ async def _require_signup(update, context, action: str = "use that") -> bool:
     return True
 
 
+async def _prompt_password_setup(update, context) -> None:
+    """Ask the user to set a password for web dashboard access.
+
+    Sets context.user_data["pending_password_setup"] = "awaiting" so the next
+    text message is intercepted by _handle_password_setup_message.
+
+    Idempotent: only fires if the user does NOT already have a password set.
+    """
+    from db import has_password
+    user_id = context.user_data.get("user_id") or await _resolve_user_id(update, context)
+    if not user_id:
+        return
+    if await asyncio.get_event_loop().run_in_executor(None, lambda: has_password(user_id)):
+        # Already has a password — don't ask again.
+        return
+    context.user_data["pending_password_setup"] = "awaiting"
+    await update.message.reply_text(
+        "Want web dashboard access too?\n\n"
+        "Set a password (8+ chars). I'll use it so you can log in at "
+        "trce.io/dashboard to edit and download your contacts.\n\n"
+        "Send your password, or /skip to stay bot-only."
+    )
+
+
+async def _handle_password_setup_message(update, context) -> bool:
+    """Intercept text messages when pending_password_setup is set.
+
+    Returns True if the message was consumed (caller should `return`), False
+    otherwise. Handles three steps: awaiting, confirm, then save.
+    """
+    from db import set_password
+    text = (update.message.text or "").strip()
+    step = context.user_data.get("pending_password_setup")
+
+    if step == "awaiting":
+        if text.lower() in ("/skip", "skip", "/cancel"):
+            context.user_data.pop("pending_password_setup", None)
+            await update.message.reply_text(
+                "No worries — you can set one anytime with /setpassword."
+            )
+            return True
+        if len(text) < 8:
+            await update.message.reply_text(
+                "Password must be at least 8 characters. Try again or /skip."
+            )
+            return True
+        if len(text) > 128:
+            await update.message.reply_text("Too long. Try again or /skip.")
+            return True
+        # Stash the candidate password + advance to confirmation.
+        context.user_data["pending_password_setup"] = "confirm"
+        context.user_data["pending_password_candidate"] = text
+        await update.message.reply_text(
+            "Type it again to confirm. (or /skip to cancel)"
+        )
+        return True
+
+    if step == "confirm":
+        candidate = context.user_data.pop("pending_password_candidate", None)
+        context.user_data.pop("pending_password_setup", None)
+        if not candidate or text != candidate:
+            await update.message.reply_text(
+                "Passwords didn't match. Password not set. Try /setpassword again."
+            )
+            return True
+        user_id = context.user_data.get("user_id") or await _resolve_user_id(update, context)
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: set_password(user_id, candidate)
+        )
+        if result.get("success"):
+            log_usage(user_id, "password_set")
+            await update.message.reply_text(
+                f"Password saved. Log in at trce.io/dashboard with "
+                f"the same email you used for /signup.\n\n"
+                f"Need to change it later? /setpassword."
+            )
+        else:
+            await update.message.reply_text(
+                f"Couldn't save password: {result.get('error', 'try again')}"
+            )
+        return True
+
+    return False
+
+
+async def setpassword_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually trigger the password setup flow. For existing magic-link users
+    who want to upgrade to web dashboard access."""
+    from db import has_password
+    user_id = await _resolve_user_id(update, context)
+    if await _require_signup(update, context, action="set a password"):
+        return
+    if await asyncio.get_event_loop().run_in_executor(None, lambda: has_password(user_id)):
+        await update.message.reply_text(
+            "You already have a password set. To change it, run /setpassword again — "
+            "for now this replaces the old one."
+        )
+    await _prompt_password_setup(update, context)
+
+
 load_dotenv()
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -108,6 +211,9 @@ Long-press in your chat list → "Pin". You'll want TRCE at the top during event
   /list  — your recent contacts
   /find  — search by name, company, notes
   /trip  — start/stop a trip (auto-tag who you meet)
+  /upgrade — go Pro ($9.99/mo or $99/yr) — pay right here in chat
+  /billing — show your current plan
+  /setpassword — unlock web dashboard (edit + download at trce.io)
   /help  — all commands + how-tips
 
 Type / anytime to see this menu.
@@ -115,7 +221,8 @@ Type / anytime to see this menu.
 HOW IT WORKS
 1. Type /signup you@gmail.com — we send a magic link to confirm
 2. Click it, you're in (free plan = 10 contacts)
-3. Forward a photo, send a card, or share a contact"""
+3. (Optional) Set a password to log in at trce.io/dashboard
+4. Forward a photo, send a card, or share a contact"""
 
 HELP = """Commands:
   /start — Welcome + onboarding
@@ -126,17 +233,22 @@ HELP = """Commands:
   /trip on/off — Toggle trip mode without changing the trip
   /trip — Show current trip + count
   /send <filter> <message> — Generate t.me links to message a filtered group
+  /upgrade — Go Pro ($9.99/mo or $99/yr). Pay here in chat via Stripe.
+  /billing — Show your current plan + manage subscription
+  /setpassword — Set or change the password for trce.io/dashboard
   /help — This message
 
 Tip: Forward any Telegram QR image to me and I'll save the contact automatically.
 You can also share a Telegram contact card and I'll grab the name + phone.
 
-Filters for /send:
-  tag:investor    — all contacts tagged X
-  event:Token2049  — all contacts from event X (or current trip)
-  trip:Token2049   — same as event:
-  all              — every contact with a Telegram handle"""
+Web dashboard: trce.io/dashboard — log in with the email + password from /setpassword.
+Edit contacts, download CSV. The bot is still your primary surface.
 
+Filters for /send:
+  tag:investor    -- all contacts tagged X
+  event:Token2049 -- all contacts from event X (or current trip)
+  trip:Token2049  -- same as event:
+  all             -- every contact with a Telegram handle"""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await _resolve_user_id(update, context)
@@ -224,6 +336,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     context.user_data["save_step"] = pending.get("next_step", "handle")
                     reply += "\n\nResuming your /save. What's their Telegram handle? (or /skip)"
             await update.message.reply_text(reply)
+            # Offer web dashboard password (only if user has none yet).
+            await _prompt_password_setup(update, context)
         else:
             await update.message.reply_text(
                 f"Couldn't verify: {result.get('error', 'unknown error')}\n"
@@ -305,6 +419,109 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Pending links: {fmt(stats['magic_links_pending'])}",
     ]
     await update.message.reply_text("\n".join(lines))
+
+
+def _founder_id() -> int:
+    return int(os.environ.get("FOUNDER_TG_ID", "6045136979"))
+
+
+async def _resolve_target_user(update, context) -> tuple[Optional[dict], str]:
+    """Resolve a /tester /untester target from one of:
+       1. Reply-to-message: looks up the replied-to user by their telegram_user_id
+       2. /tester @username — looks up by Telegram @username
+       3. /tester 123456789 — looks up by numeric telegram_user_id
+
+    Returns (user_row, error_message). One of them is None.
+    """
+    from db import find_user_by_username, find_user_by_telegram_id
+
+    # Case 1: reply to a message
+    if update.message.reply_to_message and update.message.reply_to_message.from_user:
+        target_tg_id = update.message.reply_to_message.from_user.id
+        if update.message.reply_to_message.from_user.is_bot:
+            return None, "Can't test a bot. Reply to a real user's message."
+        user = find_user_by_telegram_id(target_tg_id)
+        if not user:
+            return None, (
+                f"That user (id={target_tg_id}) hasn't started the bot yet. "
+                "Ask them to send /start to @trceiobot first."
+            )
+        return user, ""
+
+    # Case 2/3: argument
+    if not context.args:
+        return None, (
+            "Reply to a user's message with /tester, OR pass an argument:\n"
+            "  /tester @username\n"
+            "  /tester 123456789"
+        )
+    arg = context.args[0].strip()
+    if arg.lstrip("@").isdigit():
+        user = find_user_by_telegram_id(int(arg.lstrip("@")))
+    else:
+        user = find_user_by_username(arg)
+    if not user:
+        return None, (
+            f"No user found for '{arg}'. They need to /start the bot first.\n"
+            "(Or send me their username without the @, or their numeric Telegram ID.)"
+        )
+    return user, ""
+
+
+async def _grant_tester(update, context, is_tester: bool):
+    """Shared logic for /tester and /untester. Founder-only."""
+    if update.effective_user.id != _founder_id():
+        await update.message.reply_text("Unknown command. /help for the list.")
+        log.warning("/%s attempted by non-founder user_id=%s",
+                    "tester" if is_tester else "untester",
+                    update.effective_user.id if update.effective_user else None)
+        return
+
+    from db import set_user_tester
+    user, err = await _resolve_target_user(update, context)
+    if err:
+        await update.message.reply_text(err)
+        return
+
+    action = "tester" if is_tester else "free"
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: set_user_tester(user["id"], is_tester)
+    )
+    if not result.get("success"):
+        await update.message.reply_text(f"Failed: {result.get('error', 'unknown')}")
+        return
+
+    tg_id = user.get("telegram_user_id")
+    handle = user.get("telegram_username") or "(no @username)"
+    email = result.get("email") or "(no email)"
+    if is_tester:
+        msg = (
+            f"Granted TESTER (unlimited contacts, no Stripe billing) to:\n"
+            f"  TG id: {tg_id}\n"
+            f"  Handle: @{handle.lstrip('@')}\n"
+            f"  Email: {email}\n\n"
+            f"They can now save past 10 contacts. Use /untester to revoke."
+        )
+    else:
+        msg = (
+            f"Revoked tester. User is back on the free plan (10-contact cap):\n"
+            f"  TG id: {tg_id}\n"
+            f"  Handle: @{handle.lstrip('@')}\n"
+            f"  Email: {email}"
+        )
+    await update.message.reply_text(msg)
+    log.info("founder set is_tester=%s on user_id=%s (tg_id=%s)",
+             is_tester, user["id"], tg_id)
+
+
+async def tester_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/tester — grant unlimited plan to a tester. Reply to their message, or pass @username or TG id."""
+    await _grant_tester(update, context, is_tester=True)
+
+
+async def untester_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/untester — revoke tester status, drop back to free plan (10-contact cap)."""
+    await _grant_tester(update, context, is_tester=False)
 
 
 async def save_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -591,6 +808,9 @@ async def send_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Route non-command text: pending states first, else AI conversation."""
+    if context.user_data.get("pending_password_setup"):
+        await _handle_password_setup_message(update, context)
+        return
     if context.user_data.get("pending_note_for"):
         await _save_note(update, context)
         return
@@ -988,6 +1208,122 @@ async def _save_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Failed to save the note. Try again?")
 
 
+# ---------------------------------------------------------------------------
+# Stripe / Pro plan upgrade
+# ---------------------------------------------------------------------------
+# /upgrade shows monthly/annual plan options as inline buttons.
+# Tapping a button creates a Stripe Checkout Session and shows the payment
+# link. Payment flips plan='pro' on the webhook side (see website/app.py).
+
+async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show Stripe Checkout options. Anyone can upgrade; no signup gate."""
+    user_id = await _resolve_user_id(update, context)
+    if not user_id:
+        await update.message.reply_text("Couldn't identify your account. Try /start first.")
+        return
+
+    # If already pro, point them to the dashboard billing portal instead.
+    user = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: __import__("db").get_user(user_id),
+    )
+    if user and user.get("plan") in ("pro", "team", "tester"):
+        await update.message.reply_text(
+            "You're already on a paid plan.\n\n"
+            "Manage your subscription at trce.io/dashboard, "
+            "or message me if you want to switch tiers."
+        )
+        return
+
+    if not stripe_billing.is_configured():
+        await update.message.reply_text(
+            "Pro plan is coming online -- payments aren't live yet. "
+            "Drop a note to the founder or check back in a few minutes. "
+            "(Free plan is still 10 contacts -- /save works as usual.)"
+        )
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("Monthly -- $9.99/mo", callback_data="upgrade_monthly")],
+        [InlineKeyboardButton("Annual -- $99/yr (save $20)", callback_data="upgrade_annual")],
+    ]
+    await update.message.reply_text(
+        "Pick your TRCE Pro plan:\n\n"
+        "Monthly: $9.99/mo\n"
+        "Annual:  $99/yr (save $20 vs paying monthly)\n\n"
+        "Stripe handles payment. Card or Apple Pay. "
+        "Cancel anytime from trce.io/dashboard.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the monthly/annual button tap -> send Stripe Checkout link."""
+    query = update.callback_query
+    await query.answer()
+    interval = query.data.replace("upgrade_", "")  # 'monthly' or 'annual'
+    if interval not in ("monthly", "annual"):
+        return
+
+    user_id = await _resolve_user_id(update, context)
+    if not user_id:
+        await query.edit_message_text("Couldn't identify your account. Try /start first.")
+        return
+
+    # Pre-fill the customer's email if we know it (better Stripe UX).
+    user = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: __import__("db").get_user(user_id),
+    )
+    email = user.get("email") if user else None
+
+    try:
+        url = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: stripe_billing.create_checkout_session(
+                user_id=user_id,
+                interval=interval,
+                customer_email=email,
+            ),
+        )
+    except Exception as e:
+        log.exception("Stripe checkout creation failed")
+        await query.edit_message_text(
+            "Couldn't reach Stripe right now. Try again in a minute "
+            "or message the founder if it keeps failing."
+        )
+        return
+
+    await query.edit_message_text(
+        f"Opening Stripe Checkout ({interval} plan)...\n\n"
+        f"Link is valid for 24 hours.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Pay with Stripe", url=url)],
+        ]),
+    )
+
+
+async def billing_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the user's current plan + a link to the Stripe billing portal."""
+    user_id = await _resolve_user_id(update, context)
+    user = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: __import__("db").get_user(user_id),
+    )
+    if not user:
+        await update.message.reply_text("Couldn't find your account. Try /start.")
+        return
+    plan = user.get("plan", "free")
+    plan_label = {"free": "Free (10 contacts cap)", "pro": "Pro", "team": "Team",
+                  "tester": "Tester"}.get(plan, plan)
+    customer_id = user.get("stripe_customer_id")
+    status = user.get("subscription_status") or "n/a"
+
+    lines = [f"Plan: {plan_label}", f"Status: {status}"]
+    if customer_id:
+        lines.append("Manage subscription: trce.io/dashboard")
+    else:
+        lines.append("Upgrade: /upgrade")
+    await update.message.reply_text("\n".join(lines))
+
+
 async def post_init(application: Application) -> None:
     """Register the bot's command menu + start reminder scheduler."""
     commands = [
@@ -998,6 +1334,8 @@ async def post_init(application: Application) -> None:
         BotCommand("trip", "Start or end a trip to auto-tag new saves"),
         BotCommand("send", "Generate deep links to message a filtered group"),
         BotCommand("reminders", "Show your pending reminders"),
+        BotCommand("upgrade", "Upgrade to TRCE Pro ($9.99/mo or $99/yr)"),
+        BotCommand("billing", "Show your current plan"),
         BotCommand("help", "Show all commands and tips"),
         BotCommand("cancel", "Cancel the current operation"),
     ]
@@ -1126,7 +1464,13 @@ def main():
     app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
     app.add_handler(CommandHandler("signup", signup_cmd))
+    app.add_handler(CommandHandler("setpassword", setpassword_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("tester", tester_cmd))
+    app.add_handler(CommandHandler("untester", untester_cmd))
+    app.add_handler(CommandHandler("upgrade", upgrade_cmd))
+    app.add_handler(CommandHandler("billing", billing_cmd))
+    app.add_handler(CallbackQueryHandler(upgrade_callback, pattern="^upgrade_(monthly|annual)$"))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))

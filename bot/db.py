@@ -11,8 +11,13 @@ import os
 import logging
 from typing import Optional
 from supabase import create_client, Client
+import bcrypt
 
 log = logging.getLogger(__name__)
+
+# bcrypt cost factor. 12 is the modern default — ~250ms on commodity hardware.
+# Don't go lower; don't go higher without load-testing.
+BCRYPT_ROUNDS = 12
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -986,3 +991,269 @@ def get_founder_stats() -> dict:
         "magic_links_pending": pending_links,
         "generated_at": now.isoformat(),
     }
+
+
+# ============================================================
+# Password auth (web dashboard)
+# ============================================================
+
+def set_password(user_id: str, password: str) -> dict:
+    """Hash a password with bcrypt and store it on the user row.
+
+    Called from the bot after the magic-link confirm, and from /setpassword
+    for existing magic-link-only users.
+
+    Returns {"success": True} or {"error": "..."}.
+    Never raises — password failures must NEVER break the bot command.
+    """
+    if not password or len(password) < 8:
+        return {"error": "Password must be at least 8 characters."}
+    if len(password) > 128:
+        return {"error": "Password too long (max 128 chars)."}
+    try:
+        salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+        password_hash = bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+        client = get_client()
+        client.table("users").update({
+            "password_hash": password_hash,
+            "password_set_at": "now()",
+        }).eq("id", user_id).execute()
+        return {"success": True}
+    except Exception as e:
+        log.warning("set_password failed for user_id=%s: %s", user_id, e)
+        return {"error": "Couldn't save password. Try again."}
+
+
+def verify_user_password(email: str, password: str) -> dict:
+    """Look up user by email, bcrypt-verify password.
+
+    Used by the web /login route at trce.io. Returns the internal user_id so the
+    Flask session can store it.
+
+    Returns {"success": True, "user_id": "..."} | {"error": "..."}.
+    Generic error messages — don't leak whether the email exists.
+    """
+    try:
+        email = (email or "").strip().lower()
+        if not email or "@" not in email or not password:
+            return {"error": "Invalid email or password."}
+        client = get_client()
+        res = (
+            client.table("users")
+            .select("id, password_hash, email_verified")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            # Constant-time-ish: still hash a dummy so timing doesn't leak
+            # whether the email exists.
+            bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
+            return {"error": "Invalid email or password."}
+        row = res.data[0]
+        if not row.get("password_hash") or not row.get("email_verified"):
+            return {"error": "Account not set up for web login yet. Set a password first via /setpassword in the Telegram bot."}
+        if bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
+            return {"success": True, "user_id": row["id"]}
+        return {"error": "Invalid email or password."}
+    except Exception as e:
+        log.warning("verify_user_password failed: %s", e)
+        return {"error": "Login failed. Try again."}
+
+
+def has_password(user_id: str) -> bool:
+    """True if this user has set a password (web dashboard access enabled)."""
+    try:
+        res = (
+            get_client().table("users")
+            .select("password_hash")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(res.data and res.data[0].get("password_hash"))
+    except Exception:
+        return False
+
+
+def set_user_plan(
+    user_id: str,
+    plan: str,
+    *,
+    stripe_customer_id: Optional[str] = None,
+    stripe_subscription_id: Optional[str] = None,
+    subscription_status: Optional[str] = None,
+    subscription_period_end: Optional[str] = None,
+    pro_since: Optional[str] = None,
+) -> bool:
+    """Set a user's plan tier + optional Stripe identifiers. Idempotent.
+
+    Called by the Stripe webhook handler when:
+      - checkout.session.completed         -> plan='pro', pro_since=now
+      - customer.subscription.updated      -> plan='pro' if active else 'free'
+      - customer.subscription.deleted      -> plan='free', clear subscription_id
+      - invoice.payment_failed             -> subscription_status='past_due'
+
+    `plan` must be one of 'free' | 'pro' | 'team' | 'tester'.
+    Returns True on success, False on any DB error. Never raises (webhook safety).
+
+    Pass stripe_customer_id/stripe_subscription_id/subscription_status to
+    update those columns in the same row (atomic). pro_since sets the
+    `pro_since` timestamp the first time a user goes pro -- pass it on the
+    checkout.session.completed call only, leave None on renewals.
+    """
+    if plan not in ("free", "pro", "team", "tester"):
+        log.warning("set_user_plan: invalid plan %r for user %s", plan, user_id)
+        return False
+    try:
+        client = get_client()
+        update = {"plan": plan}
+        if stripe_customer_id is not None:
+            update["stripe_customer_id"] = stripe_customer_id
+        if stripe_subscription_id is not None:
+            update["stripe_subscription_id"] = stripe_subscription_id
+        if subscription_status is not None:
+            update["subscription_status"] = subscription_status
+        if subscription_period_end is not None:
+            update["subscription_period_end"] = subscription_period_end
+        if pro_since is not None:
+            update["pro_since"] = pro_since
+        client.table("users").update(update).eq("id", user_id).execute()
+        return True
+    except Exception as e:
+        log.warning("set_user_plan failed for user=%s plan=%s: %s", user_id, plan, e)
+        return False
+
+
+def set_user_tester(target_user_id: str, is_tester: bool) -> dict:
+    """Toggle the tester flag on a user (founder-only via /tester bot command).
+
+    Sets is_tester=True AND plan='tester' so check_contact_limit() sees them as
+    unlimited. The target_user_id is the INTERNAL users.id UUID, not the
+    Telegram user_id. Use get_or_create_user(telegram_user_id) first to resolve.
+
+    Returns {"success": True, "email": "..."} or {"error": "..."}.
+    Never raises.
+    """
+    try:
+        client = get_client()
+        res = client.table("users").select("email").eq("id", target_user_id).limit(1).execute()
+        if not res.data:
+            return {"error": "User not found. They need to /start the bot first."}
+        update = {
+            "is_tester": is_tester,
+        }
+        if is_tester:
+            update["plan"] = "tester"
+            update["email_verified"] = True  # testers skip the magic-link step
+        # When un-testering, demote them to 'free' (10-contact cap resumes).
+        elif not is_tester:
+            update["plan"] = "free"
+        client.table("users").update(update).eq("id", target_user_id).execute()
+        return {"success": True, "email": res.data[0].get("email")}
+    except Exception as e:
+        log.warning("set_user_tester failed: %s", e)
+        return {"error": f"DB error: {e}"}
+
+
+def find_user_by_username(username: str) -> Optional[dict]:
+    """Look up a user by their Telegram @username (without the @).
+
+    Returns the row or None. Use for /tester @friend lookup.
+    """
+    try:
+        u = username.lstrip("@").lower()
+        if not u:
+            return None
+        res = (
+            get_client().table("users")
+            .select("id, telegram_user_id, telegram_username, email, plan, is_tester")
+            .ilike("telegram_username", u)
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        log.warning("find_user_by_username failed: %s", e)
+        return None
+
+
+def find_user_by_telegram_id(tg_id: int) -> Optional[dict]:
+    """Look up a user by their numeric Telegram user_id (NOT the internal UUID)."""
+    try:
+        res = (
+            get_client().table("users")
+            .select("id, telegram_user_id, telegram_username, email, plan, is_tester")
+            .eq("telegram_user_id", tg_id)
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        log.warning("find_user_by_telegram_id failed: %s", e)
+        return None
+
+
+def get_user_by_id(user_id: str) -> Optional[dict]:
+    """Look up a user row by internal UUID. Used by the web dashboard to resolve
+    the session user_id back to email + plan.
+    Returns dict or None."""
+    try:
+        res = (
+            get_client().table("users")
+            .select("id, email, email_verified, plan, is_tester, display_name")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception:
+        return None
+
+
+def list_user_contacts(user_id: str, limit: int = 500) -> list:
+    """All contacts for a user, newest first. Used by the web dashboard list view.
+
+    Returns up to `limit` rows with the editable fields the dashboard exposes.
+    Cap at 500 by default — soft limit for the MVP, real users shouldn't hit it.
+    """
+    try:
+        res = (
+            get_client().table("contacts")
+            .select("id, name, handle, company, title, email, phone, website, notes, source, saved_at, last_contacted_at")
+            .eq("user_id", user_id)
+            .order("saved_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        log.warning("list_user_contacts failed: %s", e)
+        return []
+
+
+def delete_contact(contact_id: str, user_id: str) -> bool:
+    """Hard-delete a contact. **Web dashboard only — never call from the bot.**
+
+    Defensive: filters by BOTH contact_id AND user_id so a user can only delete
+    their own contacts. The RLS policies on `contacts` table also enforce this,
+    but the user_id filter here is belt-and-suspenders.
+
+    Why dashboard-only: the bot is conversational, and accidentally deleting
+    data via "delete John" / "remove that contact" / typo is too easy. Going
+    through the dashboard forces a deliberate click on a real button.
+
+    Returns True on success, False otherwise. Never raises — caller logs.
+    """
+    try:
+        res = (
+            get_client().table("contacts")
+            .delete()
+            .eq("id", contact_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception as e:
+        log.warning("delete_contact failed for user_id=%s contact_id=%s: %s", user_id, contact_id, e)
+        return False

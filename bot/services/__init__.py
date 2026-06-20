@@ -1,0 +1,1 @@
+"""Empty init — lets `bot/services/stripe_billing.py` import as a sibling package."""
