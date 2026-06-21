@@ -236,7 +236,7 @@ HELP = """Commands:
   /send <filter> <message> — Generate t.me links to message a filtered group
   /ask <question> — Web search (Pro Plus). Ask "what's the latest on Vitalik's company?"
   /upgrade — Go Pro ($9.99/mo or $99/yr). Pay here in chat via Stripe.
-  /upgrade-pro-plus — Go Pro Plus ($19.99/mo) to unlock /ask web search.
+  /upgrade_pro_plus — Go Pro Plus ($19.99/mo) to unlock /ask web search.
   /billing — Show your current plan + manage subscription
   /setpassword — Set or change the password for trce.io/dashboard
   /help — This message
@@ -1262,7 +1262,7 @@ async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def upgrade_pro_plus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Shortcut: /upgrade-pro-plus jumps straight to the Pro Plus checkout."""
+    """Shortcut: /upgrade_pro_plus jumps straight to the Pro Plus checkout."""
     if not stripe_billing.is_configured():
         await update.message.reply_text("Payments aren't live yet. Try /upgrade for Pro instead.")
         return
@@ -1321,7 +1321,7 @@ async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await asyncio.get_event_loop().run_in_executor(None, lambda: has_pro_plus(user_id)):
         await update.message.reply_text(
             "Web search (/ask) is a Pro Plus feature ($19.99/mo).\n\n"
-            "Upgrade with /upgrade-pro-plus and get cited answers about "
+            "Upgrade with /upgrade_pro_plus and get cited answers about "
             "your contacts, companies, and recent news -- straight in chat."
         )
         return
@@ -1564,7 +1564,7 @@ def main():
     app.add_handler(CommandHandler("tester", tester_cmd))
     app.add_handler(CommandHandler("untester", untester_cmd))
     app.add_handler(CommandHandler("upgrade", upgrade_cmd))
-    app.add_handler(CommandHandler("upgrade-pro-plus", upgrade_pro_plus_cmd))
+    app.add_handler(CommandHandler("upgrade_pro_plus", upgrade_pro_plus_cmd))
     app.add_handler(CommandHandler("ask", ask_cmd))
     app.add_handler(CommandHandler("billing", billing_cmd))
     app.add_handler(CallbackQueryHandler(upgrade_callback, pattern="^upgrade_(monthly|annual|pro_plus_monthly)$"))
