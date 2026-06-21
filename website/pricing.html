@@ -237,6 +237,7 @@
       <li class="disabled">Web dashboard</li>
       <li class="disabled">Paper card OCR</li>
       <li class="disabled">Follow-up drafts</li>
+      <li class="disabled">AI web search</li>
       <li class="disabled">Team workspace</li>
     </ul>
     <a class="btn" href="#">Start with Telegram</a>
@@ -255,6 +256,7 @@
       <li>Batch mode + trip analytics</li>
       <li>sendContact viral share</li>
       <li>Referral earnings (30% × 3 months)</li>
+      <li class="disabled">AI web search</li>
       <li class="disabled">Team workspace</li>
     </ul>
     <div style="display: flex; flex-direction: column; gap: 8px; margin: 0;">
@@ -296,12 +298,32 @@
     </div>
   </div>
 
+  <div class="card tier" style="border-color: var(--accent-2); background: linear-gradient(180deg, rgba(0, 212, 255, 0.04), var(--surface));">
+    <div class="tier-badge" style="background: var(--accent-2);">New</div>
+    <div class="tier-name" style="color: var(--accent-2);">Pro Plus</div>
+    <div class="tier-price">$19.99<span class="unit">/mo</span></div>
+    <div class="tier-desc">Everything in Pro, plus AI web search about your contacts and companies with cited answers.</div>
+    <ul class="tier-features">
+      <li>Everything in Pro</li>
+      <li><strong>/ask — AI web search</strong> (Perplexity Sonar)</li>
+      <li>Cited answers about people, companies, recent news</li>
+      <li>Ask in chat: <span class="mono" style="color: var(--accent-2); font-size: 12px;">/ask what's the latest on Vitalik?</span></li>
+      <li>Works alongside your saved contacts</li>
+      <li>~3x cheaper than Claude Pro with 1M context equivalent</li>
+      <li class="disabled">Team workspace</li>
+    </ul>
+    <form action="/upgrade" method="POST" style="margin: 0;">
+      <input type="hidden" name="interval" value="pro_plus_monthly">
+      <button type="submit" class="btn" style="width: 100%; justify-content: center; border-color: var(--accent-2); color: var(--accent-2);">Upgrade to Pro Plus · $19.99/mo</button>
+    </form>
+  </div>
+
   <div class="card tier">
     <div class="tier-name">Team</div>
     <div class="tier-price">$49<span class="unit">/mo</span></div>
     <div class="tier-desc">For investment funds, accelerators, and BD teams.</div>
     <ul class="tier-features">
-      <li>Everything in Pro</li>
+      <li>Everything in Pro Plus</li>
       <li>5 seats included</li>
       <li>Shared contact database</li>
       <li>Team analytics + leaderboards</li>
@@ -318,17 +340,18 @@
   <div class="label" style="margin-bottom: 16px;">Compare features</div>
   <div class="card" style="padding: 0; overflow: hidden;">
     <table class="compare-table">
-      <thead><tr><th>Feature</th><th>Free</th><th>Pro</th><th>Team</th></tr></thead>
+      <thead><tr><th>Feature</th><th>Free</th><th>Pro</th><th>Pro Plus</th><th>Team</th></tr></thead>
       <tbody>
-        <tr><td>Contacts</td><td>10</td><td>Unlimited</td><td>Unlimited</td></tr>
-        <tr><td>Telegram bot</td><td>✓</td><td>✓</td><td>✓</td></tr>
-        <tr><td>Web dashboard</td><td>—</td><td>✓</td><td>✓</td></tr>
-        <tr><td>Paper card OCR</td><td>—</td><td>✓</td><td>✓</td></tr>
-        <tr><td>Follow-up drafts</td><td>—</td><td>✓</td><td>✓</td></tr>
-        <tr><td>sendContact share</td><td>—</td><td>✓</td><td>✓</td></tr>
-        <tr><td>Team seats</td><td>1</td><td>1</td><td>5+</td></tr>
-        <tr><td>Shared DB</td><td>—</td><td>—</td><td>✓</td></tr>
-        <tr><td>API access</td><td>—</td><td>—</td><td>✓</td></tr>
+        <tr><td>Contacts</td><td>10</td><td>Unlimited</td><td>Unlimited</td><td>Unlimited</td></tr>
+        <tr><td>Telegram bot</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>Web dashboard</td><td>—</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>Paper card OCR</td><td>—</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>Follow-up drafts</td><td>—</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>sendContact share</td><td>—</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td><strong>AI web search (/ask)</strong></td><td>—</td><td>—</td><td><strong>✓ Sonar</strong></td><td>✓</td></tr>
+        <tr><td>Team seats</td><td>1</td><td>1</td><td>1</td><td>5+</td></tr>
+        <tr><td>Shared DB</td><td>—</td><td>—</td><td>—</td><td>✓</td></tr>
+        <tr><td>API access</td><td>—</td><td>—</td><td>—</td><td>✓</td></tr>
       </tbody>
     </table>
   </div>

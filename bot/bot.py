@@ -212,6 +212,7 @@ Long-press in your chat list → "Pin". You'll want TRCE at the top during event
   /find  — search by name, company, notes
   /trip  — start/stop a trip (auto-tag who you meet)
   /upgrade — go Pro ($9.99/mo or $99/yr) — pay right here in chat
+  /ask — web search (Pro Plus: $19.99/mo) — get cited answers about people/companies
   /billing — show your current plan
   /setpassword — unlock web dashboard (edit + download at trce.io)
   /help  — all commands + how-tips
@@ -233,7 +234,9 @@ HELP = """Commands:
   /trip on/off — Toggle trip mode without changing the trip
   /trip — Show current trip + count
   /send <filter> <message> — Generate t.me links to message a filtered group
+  /ask <question> — Web search (Pro Plus). Ask "what's the latest on Vitalik's company?"
   /upgrade — Go Pro ($9.99/mo or $99/yr). Pay here in chat via Stripe.
+  /upgrade-pro-plus — Go Pro Plus ($19.99/mo) to unlock /ask web search.
   /billing — Show your current plan + manage subscription
   /setpassword — Set or change the password for trce.io/dashboard
   /help — This message
@@ -1245,24 +1248,108 @@ async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     keyboard = [
         [InlineKeyboardButton("Monthly -- $9.99/mo", callback_data="upgrade_monthly")],
         [InlineKeyboardButton("Annual -- $99/yr (save $20)", callback_data="upgrade_annual")],
+        [InlineKeyboardButton("Pro Plus -- $19.99/mo (web search)", callback_data="upgrade_pro_plus_monthly")],
     ]
     await update.message.reply_text(
-        "Pick your TRCE Pro plan:\n\n"
-        "Monthly: $9.99/mo\n"
-        "Annual:  $99/yr (save $20 vs paying monthly)\n\n"
+        "Pick your TRCE plan:\n\n"
+        "Pro Monthly: $9.99/mo\n"
+        "Pro Annual:  $99/yr (save $20 vs paying monthly)\n"
+        "Pro Plus:    $19.99/mo -- adds AI web search via /ask\n\n"
         "Stripe handles payment. Card or Apple Pay. "
         "Cancel anytime from trce.io/dashboard.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
+async def upgrade_pro_plus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Shortcut: /upgrade-pro-plus jumps straight to the Pro Plus checkout."""
+    if not stripe_billing.is_configured():
+        await update.message.reply_text("Payments aren't live yet. Try /upgrade for Pro instead.")
+        return
+    user_id = await _resolve_user_id(update, context)
+    if not user_id:
+        await update.message.reply_text("Couldn't identify your account. Try /start first.")
+        return
+    user = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: __import__("db").get_user(user_id),
+    )
+    email = user.get("email") if user else None
+    try:
+        url = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: stripe_billing.create_checkout_session(
+                user_id=user_id,
+                interval="pro_plus_monthly",
+                customer_email=email,
+                tier="pro_plus",
+            ),
+        )
+    except Exception as e:
+        log.exception("Pro Plus checkout creation failed")
+        await update.message.reply_text("Couldn't reach Stripe. Try /upgrade for the full menu.")
+        return
+    await update.message.reply_text(
+        "Opening Stripe Checkout for TRCE Pro Plus ($19.99/mo)...\n\n"
+        "Adds /ask -- AI web search about your contacts and companies, "
+        "with cited answers. Link is valid for 24 hours.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Pay $19.99/mo with Stripe", url=url)],
+        ]),
+    )
+
+
+async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/ask <question> -- web search via Perplexity Sonar (Pro Plus feature).
+
+    If the user is on Pro Plus or tester, calls Sonar and returns the cited answer.
+    Otherwise, sends a friendly upgrade nudge.
+    """
+    user_id = await _resolve_user_id(update, context)
+    if not user_id:
+        await update.message.reply_text("Couldn't identify your account. Try /start first.")
+        return
+
+    question = " ".join(context.args or []).strip()
+    if not question:
+        await update.message.reply_text(
+            "Usage: /ask <your question>\n\n"
+            "Example: /ask what's the latest on Vitalik Buterin's Ethereum Foundation work?"
+        )
+        return
+
+    from db import has_pro_plus
+    if not await asyncio.get_event_loop().run_in_executor(None, lambda: has_pro_plus(user_id)):
+        await update.message.reply_text(
+            "Web search (/ask) is a Pro Plus feature ($19.99/mo).\n\n"
+            "Upgrade with /upgrade-pro-plus and get cited answers about "
+            "your contacts, companies, and recent news -- straight in chat."
+        )
+        return
+
+    # Pro Plus user: call Sonar directly. Don't go through M3's tool layer
+    # because /ask is an explicit user command, not a model decision.
+    from ai import call_sonar
+    thinking = await update.message.reply_text("Searching the web...")
+    try:
+        answer = await call_sonar(question)
+    except Exception as e:
+        log.exception("ask_cmd Sonar failed")
+        await thinking.edit_text("Web search hit an error. Try again in a minute.")
+        return
+
+    header = f"Web: {question}\n\n"
+    await thinking.edit_text(header + answer)
+    log_usage(user_id, "ask", f"q={question[:60]}")
+
+
 async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the monthly/annual button tap -> send Stripe Checkout link."""
+    """Handle the monthly/annual/pro_plus button tap -> send Stripe Checkout link."""
     query = update.callback_query
     await query.answer()
-    interval = query.data.replace("upgrade_", "")  # 'monthly' or 'annual'
-    if interval not in ("monthly", "annual"):
+    interval = query.data.replace("upgrade_", "")  # 'monthly' | 'annual' | 'pro_plus_monthly'
+    if interval not in ("monthly", "annual", "pro_plus_monthly"):
         return
+    tier = "pro_plus" if interval == "pro_plus_monthly" else "pro"
 
     user_id = await _resolve_user_id(update, context)
     if not user_id:
@@ -1282,6 +1369,7 @@ async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 user_id=user_id,
                 interval=interval,
                 customer_email=email,
+                tier=tier,
             ),
         )
     except Exception as e:
@@ -1292,11 +1380,12 @@ async def upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
 
+    label = {"monthly": "$9.99/mo", "annual": "$99/yr", "pro_plus_monthly": "$19.99/mo"}.get(interval, interval)
     await query.edit_message_text(
         f"Opening Stripe Checkout ({interval} plan)...\n\n"
         f"Link is valid for 24 hours.",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Pay with Stripe", url=url)],
+            [InlineKeyboardButton(f"Pay with Stripe ({label})", url=url)],
         ]),
     )
 
@@ -1334,7 +1423,8 @@ async def post_init(application: Application) -> None:
         BotCommand("trip", "Start or end a trip to auto-tag new saves"),
         BotCommand("send", "Generate deep links to message a filtered group"),
         BotCommand("reminders", "Show your pending reminders"),
-        BotCommand("upgrade", "Upgrade to TRCE Pro ($9.99/mo or $99/yr)"),
+        BotCommand("ask", "Web search about your contacts (Pro Plus)"),
+        BotCommand("upgrade", "Upgrade to TRCE Pro or Pro Plus"),
         BotCommand("billing", "Show your current plan"),
         BotCommand("help", "Show all commands and tips"),
         BotCommand("cancel", "Cancel the current operation"),
@@ -1353,6 +1443,11 @@ async def post_init(application: Application) -> None:
         log.info("Reminder scheduler started (60s interval)")
     else:
         log.warning("JobQueue not available; reminders will NOT auto-fire")
+
+
+# Plans that grant Pro Plus features (web search via /ask).
+# Used by ask_cmd and any other feature gate that checks "is this Pro Plus?".
+PRO_PLUS_PLANS = ("pro_plus", "team", "tester")
 
 
 async def _reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1469,8 +1564,10 @@ def main():
     app.add_handler(CommandHandler("tester", tester_cmd))
     app.add_handler(CommandHandler("untester", untester_cmd))
     app.add_handler(CommandHandler("upgrade", upgrade_cmd))
+    app.add_handler(CommandHandler("upgrade-pro-plus", upgrade_pro_plus_cmd))
+    app.add_handler(CommandHandler("ask", ask_cmd))
     app.add_handler(CommandHandler("billing", billing_cmd))
-    app.add_handler(CallbackQueryHandler(upgrade_callback, pattern="^upgrade_(monthly|annual)$"))
+    app.add_handler(CallbackQueryHandler(upgrade_callback, pattern="^upgrade_(monthly|annual|pro_plus_monthly)$"))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))

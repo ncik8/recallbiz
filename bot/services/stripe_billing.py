@@ -57,13 +57,28 @@ _INLINE_PRICES = {
         "interval": "month",
         "product_name": "TRCE Pro -- Monthly",
         "description": "Unlimited contacts, web dashboard, paper card OCR, follow-up drafts, batch mode, sendContact viral share.",
+        "tier": "pro",
     },
     "annual": {
         "amount": 9900,
         "interval": "year",
         "product_name": "TRCE Pro -- Annual",
         "description": "Unlimited contacts, web dashboard, paper card OCR, follow-up drafts, batch mode, sendContact viral share. Save $20 vs monthly.",
+        "tier": "pro",
     },
+    "pro_plus_monthly": {
+        "amount": 1999,
+        "interval": "month",
+        "product_name": "TRCE Pro Plus -- Monthly",
+        "description": "Everything in Pro, plus AI web search for contacts and companies via Perplexity Sonar. Ask the bot 'what's the latest on Vitalik's company' and get cited answers.",
+        "tier": "pro_plus",
+    },
+}
+
+# Map tier -> set of valid interval keys (for validation in create_checkout_session).
+_TIER_INTERVALS = {
+    "pro": ("monthly", "annual"),
+    "pro_plus": ("pro_plus_monthly",),
 }
 
 DEFAULT_SUCCESS_URL = os.environ.get(
@@ -85,26 +100,35 @@ def create_checkout_session(
     user_id: str,
     interval: str = "monthly",
     customer_email: Optional[str] = None,
+    tier: str = "pro",
 ) -> str:
     """Create a Stripe Checkout Session and return the URL.
 
     Args:
         user_id: Internal TRCE users.id UUID. Stored in
                  `client_reference_id` so the webhook knows which user paid.
-        interval: 'monthly' | 'annual'.
+        interval: 'monthly' | 'annual' | 'pro_plus_monthly'.
         customer_email: optional. Pre-fills Stripe Checkout. We pass the user's
                         email if we know it so the receipt goes to the right place.
+        tier: 'pro' (default) | 'pro_plus'. Stored in checkout session metadata
+              so the webhook can apply the correct plan. Validates that interval
+              is allowed for the requested tier.
 
     Returns:
         The Checkout Session URL (e.g. https://checkout.stripe.com/c/pay/...).
 
     Raises:
         RuntimeError if STRIPE_SECRET_KEY is missing.
-        KeyError if interval is not 'monthly' or 'annual'.
+        ValueError if interval is not valid for the given tier.
         stripe.error.StripeError on API failure.
     """
     if interval not in _INLINE_PRICES:
-        raise KeyError("Unknown interval {!r}. Use 'monthly' or 'annual'.".format(interval))
+        raise ValueError("Unknown interval {!r}. Use 'monthly', 'annual', or 'pro_plus_monthly'.".format(interval))
+    if tier not in _TIER_INTERVALS:
+        raise ValueError("Unknown tier {!r}. Use 'pro' or 'pro_plus'.".format(tier))
+    if interval not in _TIER_INTERVALS[tier]:
+        raise ValueError("Interval {!r} is not available for tier {!r}. Allowed: {}".format(
+            interval, tier, _TIER_INTERVALS[tier]))
 
     stripe = _get_stripe()
     price_def = _INLINE_PRICES[interval]
@@ -136,6 +160,9 @@ def create_checkout_session(
         "cancel_url": DEFAULT_CANCEL_URL,
         "client_reference_id": user_id,
         "allow_promotion_codes": True,
+        # tier is read by the webhook to call set_user_plan(tier=...).
+        # Defaults to "pro" if Stripe ever strips it (shouldn't, but be defensive).
+        "metadata": {"tier": price_def.get("tier", tier)},
     }
     if customer_email:
         params["customer_email"] = customer_email

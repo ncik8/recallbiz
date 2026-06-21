@@ -628,10 +628,15 @@ def _handle_stripe_event(etype, obj):
     """Apply a verified Stripe event to the database.
 
     Events we care about:
-      - checkout.session.completed        : new subscription -> plan='pro'
+      - checkout.session.completed        : new subscription -> plan from metadata.tier ('pro'|'pro_plus')
       - customer.subscription.updated     : renewal / status change
       - customer.subscription.deleted     : cancellation -> plan='free'
       - invoice.payment_failed            : card declined -> status='past_due'
+
+    The tier is read from the checkout session's `metadata.tier` field, which is
+    set by stripe_billing.create_checkout_session(tier=...). This means the same
+    webhook code path works for both Pro ($9.99/$99) and Pro Plus ($19.99)
+    subscriptions -- we never hardcode "pro" in the webhook.
     """
     if etype == "checkout.session.completed":
         user_id = getattr(obj, "client_reference_id", None)
@@ -640,6 +645,17 @@ def _handle_stripe_event(etype, obj):
         if not user_id or user_id == "anon":
             app.logger.warning("checkout.session.completed: no user_id (anonymous visitor)")
             return
+        # Read tier from metadata -- defaults to 'pro' for safety on legacy data.
+        tier = "pro"
+        try:
+            md = getattr(obj, "metadata", None) or {}
+            # stripe lib returns dict on metadata; on raw dict events it's also a dict
+            tier = (md.get("tier") if isinstance(md, dict) else None) or "pro"
+            if tier not in ("pro", "pro_plus"):
+                app.logger.warning("checkout.session.completed: unknown tier=%r, defaulting to 'pro'", tier)
+                tier = "pro"
+        except Exception as e:
+            app.logger.warning("could not read checkout metadata.tier: %s", e)
         # Fetch subscription details for period_end
         period_end = None
         if subscription_id and stripe_billing.is_configured():
@@ -653,7 +669,7 @@ def _handle_stripe_event(etype, obj):
                 app.logger.warning("Could not fetch subscription period_end: %s", e)
         db.set_user_plan(
             user_id,
-            "pro",
+            tier,
             stripe_customer_id=customer_id,
             stripe_subscription_id=subscription_id,
             subscription_status="active",
@@ -674,7 +690,11 @@ def _handle_stripe_event(etype, obj):
         if not user_id:
             app.logger.warning("subscription.updated for unknown sub_id=%s", sub_id)
             return
-        new_plan = "pro" if status in ("active", "trialing") else "free"
+        # Renewals keep the user's existing tier. We don't downgrade or upgrade
+        # based on amount because renewals don't carry our metadata.
+        # The plan was set on checkout.session.completed and we trust it.
+        existing_plan = _plan_for_subscription(sub_id) or "pro"
+        new_plan = existing_plan if status in ("active", "trialing") else "free"
         db.set_user_plan(
             user_id,
             new_plan,
@@ -734,6 +754,31 @@ def _user_id_for_subscription(stripe_subscription_id):
     return None
 
 
+def _plan_for_subscription(stripe_subscription_id):
+    """Look up the user's current plan by stripe_subscription_id.
+
+    Used by the renewal path so we don't downgrade a Pro Plus subscriber to Pro
+    when their subscription auto-renews (renewals don't carry our metadata).
+    Returns None if no user found.
+    """
+    if not stripe_subscription_id:
+        return None
+    try:
+        res = (
+            db.get_client()
+            .table("users")
+            .select("plan")
+            .eq("stripe_subscription_id", stripe_subscription_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return res.data[0].get("plan") or "pro"
+    except Exception as e:
+        app.logger.warning("_plan_for_subscription failed: %s", e)
+    return None
+
+
 @app.route("/upgrade", methods=["POST"])
 def upgrade_web():
     """Pricing-page form POST: create a Stripe Checkout Session and redirect.
@@ -743,8 +788,9 @@ def upgrade_web():
     client_reference_id only when the user is logged in).
     """
     interval = (request.form.get("interval") or "monthly").lower()
-    if interval not in ("monthly", "annual"):
-        return {"error": "interval must be monthly or annual"}, 400
+    if interval not in ("monthly", "annual", "pro_plus_monthly"):
+        return {"error": "interval must be monthly, annual, or pro_plus_monthly"}, 400
+    tier = "pro_plus" if interval == "pro_plus_monthly" else "pro"
 
     user_id = _current_user_id()
     customer_email = None
@@ -764,6 +810,7 @@ def upgrade_web():
             user_id=user_id or "anon",
             interval=interval,
             customer_email=customer_email,
+            tier=tier,
         )
     except Exception as e:
         app.logger.exception("create_checkout_session failed")

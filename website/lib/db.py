@@ -829,7 +829,7 @@ def check_contact_limit(user_id: str) -> dict:
         is_tester = bool(user.get("is_tester", False))
 
         # Unlimited tiers bypass the count check
-        if plan in ("pro", "team", "tester") or is_tester:
+        if plan in ("pro", "pro_plus", "team", "tester") or is_tester:
             return {"allowed": True, "plan": "tester" if is_tester else plan}
 
         # Free plan: count and compare
@@ -851,6 +851,25 @@ def check_contact_limit(user_id: str) -> dict:
     except Exception as e:
         log.warning("check_contact_limit failed: %s", e)
         return {"allowed": True}
+
+
+def has_pro_plus(user_id: str) -> bool:
+    """True if the user can use Pro Plus features (web search, etc.).
+
+    Pro Plus ($19.99/mo) and testers both qualify. Returns False on any DB error
+    so we fail closed for paid features (better than accidentally letting free
+    users hit OpenRouter/Sonar).
+    """
+    try:
+        user = get_user(user_id)
+        if not user:
+            return False
+        if bool(user.get("is_tester", False)):
+            return True
+        return (user.get("plan") or "").lower() == "pro_plus"
+    except Exception as e:
+        log.warning("has_pro_plus check failed: %s", e)
+        return False
 
 
 def create_magic_token(user_id: str, email: str, token: str) -> bool:
@@ -1207,10 +1226,6 @@ def set_user_plan(
     update those columns in the same row (atomic). pro_since sets the
     `pro_since` timestamp the first time a user goes pro -- pass it on the
     checkout.session.completed call only, leave None on renewals.
-
-    `cancel_at_period_end` distinguishes 'active until period ends' (user
-    canceled via portal but kept access) from 'active normal' — used by the
-    dashboard to show "Pro ends [date]" banner.
     """
     if plan not in ("free", "pro", "team", "tester"):
         log.warning("set_user_plan: invalid plan %r for user %s", plan, user_id)

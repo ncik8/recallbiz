@@ -22,6 +22,13 @@ MINIMAX_BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1
 MINIMAX_CHAT_URL = os.environ.get("MINIMAX_CHAT_URL")
 MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
 
+# OpenRouter key — for the web_search tool (Perplexity Sonar).
+# Same key the user already has configured for fallback LLM routing.
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+# Perplexity Sonar via OpenRouter: cheap, cited, purpose-built for search.
+OPENROUTER_SONAR_MODEL = "perplexity/sonar"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
 
 def _chat_url() -> str:
     """Resolve the chat completions URL.
@@ -59,6 +66,58 @@ async def call_minimax(
         r = await client.post(_chat_url(), headers=headers, json=payload)
         r.raise_for_status()
         return r.json()
+
+
+async def call_sonar(
+    query: str,
+    model: str = OPENROUTER_SONAR_MODEL,
+    timeout: float = 30.0,
+) -> str:
+    """Call Perplexity Sonar via OpenRouter for a web search.
+
+    Returns the answer text (which already includes inline citations from Sonar).
+    Returns a user-safe error string on any failure so the caller can surface it
+    without breaking the conversation.
+    """
+    if not OPENROUTER_API_KEY:
+        return "Web search isn't configured on this server (missing OPENROUTER_API_KEY)."
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You answer questions with cited web sources. "
+                    "Keep answers concise (2-4 sentences). "
+                    "Always include inline citations like [1], [2] for facts."
+                ),
+            },
+            {"role": "user", "content": query},
+        ],
+        "max_tokens": 800,
+        "temperature": 0.2,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            r.raise_for_status()
+            data = r.json()
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        return content.strip() or "No answer from web search."
+    except httpx.HTTPStatusError as e:
+        log.warning("Sonar HTTP error %s: %s", e.response.status_code, e.response.text[:200])
+        return f"Web search failed (HTTP {e.response.status_code}). Try again later."
+    except Exception as e:
+        log.warning("Sonar call failed: %s", e)
+        return "Web search hit an error. Try again later."
 
 
 def _parse_json_from_text(text: str) -> Optional[dict]:
@@ -349,8 +408,36 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the public web for current information about a person, "
+                "company, or topic. Returns cited answers from Perplexity Sonar. "
+                "Use this when the user asks something that needs live data "
+                "(latest news, recent posts, current role, company info) that "
+                "isn't already in their saved contacts. "
+                "ONLY call this when the user is on the pro_plus plan -- "
+                "for free/pro users, suggest /upgrade Pro Plus instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "The web search query. Be specific: include person name, "
+                            "company, and what info you want. "
+                            "Example: 'Vitalik Buterin Ethereum Foundation latest news 2026'"
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
-
 
 SYSTEM_PROMPT = """You are TRCE (TRCE.IO), the user's AI PA — a personal assistant that remembers everyone they've met. You help search, edit, and add information to their contacts via photos of business cards (OCR), Telegram QRs, screenshots, or plain text.
 
@@ -674,6 +761,30 @@ async def execute_tool(user_id: str, name: str, args: dict) -> dict:
             "success": True,
             "_focus": {"id": cid, "name": cname, "company": company},
         }
+
+    if name == "web_search":
+        # Gate: only pro_plus and tester users can use web search.
+        # Free/Pro users get a friendly upgrade nudge instead.
+        from db import get_user
+        user = await loop.run_in_executor(None, lambda: get_user(user_id))
+        if not user:
+            return {"error": "user not found"}
+        plan = (user.get("plan") or "free").lower()
+        is_tester = bool(user.get("is_tester", False))
+        if plan != "pro_plus" and not is_tester:
+            return {
+                "allowed": False,
+                "reason": "plan_gate",
+                "message": (
+                    "Web search is a Pro Plus feature ($19.99/mo). "
+                    "Upgrade in chat with /upgrade."
+                ),
+            }
+        query = (args.get("query") or "").strip()
+        if not query:
+            return {"error": "missing query"}
+        answer = await call_sonar(query)
+        return {"success": True, "query": query, "answer": answer}
 
     if name == "set_reminder":
         from db import (
