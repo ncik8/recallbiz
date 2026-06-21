@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="trce hex play icon">
+  <defs>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Dark background, matches site -->
+  <rect width="1024" height="1024" fill="#0a0a0e"/>
+
+  <!-- Outer hexagon (pointy-top), green stroke -->
+  <polygon points="512,128 832,320 832,704 512,896 192,704 192,320"
+           fill="none"
+           stroke="#00ff88"
+           stroke-width="36"
+           stroke-linejoin="round"
+           filter="url(#glow)"/>
+
+  <!-- Play triangle inside (filled green) -->
+  <polygon points="430,408 430,616 644,512"
+           fill="#00ff88"
+           filter="url(#glow)"/>
+</svg>
