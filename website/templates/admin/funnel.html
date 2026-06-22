@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TRCE Funnel — Admin</title>
+<style>
+:root {
+  --bg: #0a0e0a;
+  --panel: #0f140f;
+  --border: #1a2418;
+  --fg: #d4e8d4;
+  --dim: #6a7a6a;
+  --accent: #00ff88;
+  --accent2: #00d4ff;
+  --warn: #ffaa00;
+  --crit: #ff5577;
+  --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 24px;
+  min-height: 100vh;
+}
+.crt-overlay {
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 255, 136, 0.03),
+    rgba(0, 255, 136, 0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 1000;
+}
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+.subtitle { color: var(--dim); font-size: 12px; margin-bottom: 32px; }
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 16px;
+}
+.stat-label {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--accent);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+tr:last-child td { border-bottom: none; }
+.event-name { color: var(--accent2); }
+.count { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
+.unique { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent); }
+.bar-cell { width: 30%; }
+.bar {
+  height: 6px;
+  background: var(--accent);
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+.bar:hover { opacity: 0.7; }
+.empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--dim);
+  font-style: italic;
+}
+.footer {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--dim);
+}
+.cv {
+  display: inline-block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  font-size: 11px;
+  margin-left: 8px;
+  color: var(--dim);
+}
+</style>
+</head>
+<body>
+<div class="crt-overlay"></div>
+
+<h1>▌ TRCE FUNNEL</h1>
+<p class="subtitle">Last 30 days · distinct users · all event sources</p>
+
+<div class="stats" id="stats">
+  <div class="stat-card">
+    <div class="stat-label">Total events</div>
+    <div class="stat-value" id="total-events">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Unique users</div>
+    <div class="stat-value" id="unique-users">--</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Window</div>
+    <div class="stat-value" style="font-size:18px;">30 days</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Subscribers (revenue)</div>
+    <div class="stat-value" id="subscribers">--</div>
+  </div>
+</div>
+
+<table id="funnel-table">
+  <thead>
+    <tr>
+      <th>Event</th>
+      <th>Label</th>
+      <th class="count">Count</th>
+      <th class="unique">Unique</th>
+      <th class="bar-cell">Coverage</th>
+    </tr>
+  </thead>
+  <tbody id="funnel-body">
+    <tr><td colspan="5" class="empty">Loading...</td></tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  <span>TRCE admin funnel · mirrors rezmycv.com/admin/funnel/view</span>
+  <span class="cv" id="generated-at">--</span>
+</div>
+
+<script>
+async function load() {
+  try {
+    const r = await fetch('/admin/funnel', { credentials: 'same-origin' });
+    if (!r.ok) {
+      document.getElementById('funnel-body').innerHTML =
+        '<tr><td colspan="5" class="empty">Auth failed or server error: ' + r.status + '</td></tr>';
+      return;
+    }
+    const data = await r.json();
+    document.getElementById('total-events').textContent = data.total_events || 0;
+    document.getElementById('unique-users').textContent = data.unique_users_overall || 0;
+
+    const funnel = data.funnel || [];
+    const sub = funnel.find(s => s.event === 'subscription_created');
+    document.getElementById('subscribers').textContent = sub ? sub.unique_users : 0;
+
+    const max = Math.max(1, ...funnel.map(s => s.unique_users));
+    const body = document.getElementById('funnel-body');
+    if (funnel.length === 0 || funnel.every(s => s.count === 0)) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">No events yet. Events will appear here as users flow through the bot.</td></tr>';
+    } else {
+      body.innerHTML = funnel.map(s => `
+        <tr>
+          <td class="event-name">${s.event}</td>
+          <td>${s.label}</td>
+          <td class="count">${s.count}</td>
+          <td class="unique">${s.unique_users}</td>
+          <td class="bar-cell"><div class="bar" style="width:${(s.unique_users / max * 100).toFixed(0)}%"></div></td>
+        </tr>
+      `).join('');
+    }
+
+    document.getElementById('generated-at').textContent =
+      'Generated ' + new Date(data.generated_at).toLocaleString();
+  } catch (e) {
+    document.getElementById('funnel-body').innerHTML =
+      '<tr><td colspan="5" class="empty">Fetch error: ' + e.message + '</td></tr>';
+  }
+}
+load();
+// Auto-refresh every 60 seconds
+setInterval(load, 60000);
+</script>
+</body>
+</html>

@@ -25,7 +25,10 @@ import os
 import sys
 import csv
 import io
+import json
 import secrets
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from flask import (
     Flask, request, session, redirect, url_for, render_template, render_template_string,
@@ -589,6 +592,128 @@ def health():
     return {"status": "ok", "service": "trce-web"}
 
 
+# ============== ADMIN FUNNEL ==============
+# Investor-facing metrics dashboard. Mirrors rezmycv's /admin/funnel pattern
+# (HTTP Basic Auth, JSON + HTML views, 30-day window). Logs events from
+# both the bot (via public.analytics_events) and the website (via this helper).
+#
+# Funnel steps for TRCE (last 30 days, distinct users):
+#   bot_start -> bot_signup_start -> email_verified -> contact_saved
+#     -> ai_chat_used -> ask_used -> upgrade_clicked -> subscription_created
+_admin_log = logging.getLogger("trce.admin")
+_analytics_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="trce-events")
+
+
+def _log_analytics_event(user_id, event_name: str, **properties) -> None:
+    """Non-blocking Supabase insert into analytics_events. Safe to call anywhere.
+
+    Used by the website webhook to log subscription_created. The bot has its
+    own copy in bot/services/events.py (uses ThreadPoolExecutor too).
+    """
+    def _write():
+        try:
+            payload = {"event_name": event_name}
+            if user_id:
+                payload["user_id"] = user_id
+            if properties:
+                payload["properties"] = json.loads(json.dumps(properties, default=str))
+            db.get_client().table("analytics_events").insert(payload).execute()
+        except Exception as e:
+            _admin_log.warning("analytics_events insert failed: %s: %s", type(e).__name__, e)
+    try:
+        _analytics_executor.submit(_write)
+    except Exception as e:
+        _admin_log.warning("analytics_events submit failed: %s", type(e).__name__, e)
+
+
+def _check_admin_auth() -> bool:
+    """HTTP Basic Auth for /admin/* endpoints (admin / Mylo@5327)."""
+    auth = request.authorization
+    if not auth or auth.username != "admin" or auth.password != "Mylo@5327":
+        return False
+    return True
+
+
+def _make_unauth_response():
+    resp = jsonify({"error": "unauthorized", "message": "Login required: admin / Mylo@5327"})
+    resp.status_code = 401
+    resp.headers["WWW-Authenticate"] = 'Basic realm="TRCE Admin"'
+    return resp
+
+
+_FUNNEL_STEPS = [
+    ("bot_start", "Bot started (/start)"),
+    ("bot_signup_start", "Signup initiated (/signup)"),
+    ("email_verified", "Email confirmed (magic link)"),
+    ("contact_saved", "Contact saved (first activation)"),
+    ("ai_chat_used", "AI chat used"),
+    ("ask_used", "/ask (Pro Plus web search)"),
+    ("upgrade_clicked", "Upgrade CTA clicked"),
+    ("subscription_created", "Subscription created (revenue)"),
+]
+
+
+@app.route("/admin/funnel")
+def admin_funnel():
+    """Investor-facing funnel metrics. Last 30 days, grouped by event_name.
+    Returns JSON for dashboards or embedding. Protected by HTTP Basic Auth.
+    """
+    if not _check_admin_auth():
+        return _make_unauth_response()
+
+    try:
+        from collections import Counter
+        from datetime import timedelta
+        supabase = db.get_client()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        resp = (
+            supabase.table("analytics_events")
+            .select("event_name,user_id,created_at")
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        events = resp.data or []
+        counts = Counter(e["event_name"] for e in events)
+
+        users_per_event = {}
+        for e in events:
+            en = e["event_name"]
+            uid = e.get("user_id")
+            if uid:
+                users_per_event.setdefault(en, set()).add(uid)
+
+        funnel = [
+            {
+                "event": en,
+                "label": label,
+                "count": counts.get(en, 0),
+                "unique_users": len(users_per_event.get(en, set())),
+            }
+            for en, label in _FUNNEL_STEPS
+        ]
+
+        return jsonify({
+            "window_days": 30,
+            "total_events": len(events),
+            "unique_users_overall": len({e["user_id"] for e in events if e.get("user_id")}),
+            "funnel": funnel,
+            "all_event_counts": dict(counts),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/admin/funnel/view")
+def admin_funnel_view():
+    """Human-readable funnel dashboard. Same data as /admin/funnel but
+    rendered as HTML. HTTP Basic Auth protected."""
+    if not _check_admin_auth():
+        return _make_unauth_response()
+    return render_template("admin/funnel.html")
+
+
 # ============== STRIPE ==============
 # Two endpoints:
 #   POST /stripe/webhook   - Stripe -> us. Idempotent. Handles 4 event types.
@@ -676,6 +801,8 @@ def _handle_stripe_event(etype, obj):
             subscription_period_end=period_end,
             pro_since=datetime.now(timezone.utc).isoformat(),
         )
+        # Funnel analytics: subscription_created (revenue event)
+        _log_analytics_event(user_id, "subscription_created", tier=tier)
 
     elif etype == "customer.subscription.updated":
         sub_id = getattr(obj, "id", None)

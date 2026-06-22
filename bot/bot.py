@@ -25,6 +25,7 @@ from ocr import try_decode_qr, parse_telegram_qr
 from ai import interpret_card_edit
 from ai import extract_card_from_image, handle_conversation
 from services import stripe_billing
+from services.events import log_event
 
 
 async def _resolve_user_id(update, context) -> str:
@@ -256,6 +257,7 @@ Filters for /send:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await _resolve_user_id(update, context)
     log_usage(user_id, "start")
+    log_event(user_id, "bot_start")
 
     # Magic link deep-link: /start verify_<token>
     args = (context.args or [])
@@ -269,6 +271,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"You're signed up. Free plan includes 10 contacts. "
                 f"/help for everything the bot can do."
             )
+            log_event(user_id, "email_verified", email=result.get("email", ""))
             # Resume any pending save that was gated behind signup.
             pending = context.user_data.pop("pending_signup_resume", None)
             if pending:
@@ -356,6 +359,7 @@ async def signup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from auth import start_signup
     user_id = await _resolve_user_id(update, context)
     log_usage(user_id, "signup_start")
+    log_event(user_id, "bot_signup_start")
 
     if not context.args:
         await update.message.reply_text(
@@ -367,6 +371,7 @@ async def signup_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await start_signup(user_id, email)
     if result.get("success"):
         email = result["email"]
+        log_event(user_id, "bot_signup_email_sent", email=email)
         if result.get("dev_mode"):
             # No Resend key — log the link so Nick can click it manually
             await update.message.reply_text(
@@ -590,6 +595,7 @@ async def _handle_save_message(update: Update, context: ContextTypes.DEFAULT_TYP
             ),
         )
         log_usage(user_id, "save_complete", f"contact_id={contact_id}")
+        log_event(user_id, "contact_saved", contact_id=contact_id, source="manual")
         # Clear state
         for k in ["save_step", "new_contact_name", "new_contact_handle",
                   "new_contact_company", "new_contact_title"]:
@@ -833,6 +839,7 @@ async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_text:
         return
     processing = await update.message.reply_text("🤔 Thinking...")
+    log_event(user_id, "ai_chat_used")
     try:
         ud = context.user_data or {}
         last_contact = ud.get("last_contact")
@@ -1221,6 +1228,7 @@ async def _save_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def upgrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show Stripe Checkout options. Anyone can upgrade; no signup gate."""
     user_id = await _resolve_user_id(update, context)
+    log_event(user_id, "upgrade_clicked")
     if not user_id:
         await update.message.reply_text("Couldn't identify your account. Try /start first.")
         return
@@ -1305,6 +1313,7 @@ async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     Otherwise, sends a friendly upgrade nudge.
     """
     user_id = await _resolve_user_id(update, context)
+    log_event(user_id, "ask_used")
     if not user_id:
         await update.message.reply_text("Couldn't identify your account. Try /start first.")
         return
