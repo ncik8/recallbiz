@@ -657,9 +657,16 @@ _FUNNEL_STEPS = [
 def admin_funnel():
     """Investor-facing funnel metrics. Last 30 days, grouped by event_name.
     Returns JSON for dashboards or embedding. Protected by HTTP Basic Auth.
+
+    If the request comes from a browser (Accept: text/html), redirect to the
+    HTML dashboard view. If it's a tool/curl call, return pretty-printed JSON.
     """
     if not _check_admin_auth():
         return _make_unauth_response()
+
+    accept = request.headers.get("Accept", "")
+    if "text/html" in accept and "json" not in accept:
+        return redirect("/admin/funnel/view")
 
     try:
         from collections import Counter
@@ -692,14 +699,18 @@ def admin_funnel():
             for en, label in _FUNNEL_STEPS
         ]
 
-        return jsonify({
-            "window_days": 30,
-            "total_events": len(events),
-            "unique_users_overall": len({e["user_id"] for e in events if e.get("user_id")}),
-            "funnel": funnel,
-            "all_event_counts": dict(counts),
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-        })
+        # Pretty-print for human eyes; tools parse JSON either way.
+        return Response(
+            json.dumps({
+                "window_days": 30,
+                "total_events": len(events),
+                "unique_users_overall": len({e["user_id"] for e in events if e.get("user_id")}),
+                "funnel": funnel,
+                "all_event_counts": dict(counts),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }, indent=2),
+            mimetype="application/json",
+        )
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
