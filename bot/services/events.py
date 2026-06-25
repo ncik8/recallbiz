@@ -18,7 +18,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from services.db import get_client as get_supabase_client
+from db import get_client as get_supabase_client
 
 _log = logging.getLogger(__name__)
 
