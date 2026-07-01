@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>You don't need more contacts. You need to find the ones you already have.</title>
+<meta name="description" content="Most contact databases decay 30% a year. The real networking problem isn't collecting more names — it's being able to find the right one in 10 seconds.">
+<meta property="og:title" content="You don't need more contacts. You need to find the ones you already have.">
+<meta property="og:site_name" content="trce">
+<meta property="og:description" content="Most contact databases decay 30% a year. The real networking problem isn't collecting more names — it's being able to find the right one in 10 seconds.">
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://trce.io/blog/you-dont-need-more-contacts">
+<meta property="og:image" content="https://trce.io/assets/blog-covers/you-dont-need-more-contacts.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="You don't need more contacts. You need to find the ones you already have.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="You don't need more contacts. You need to find the ones you already have.">
+<meta name="twitter:description" content="Most contact databases decay 30% a year. The real networking problem isn't collecting more names — it's being able to find the right one in 10 seconds.">
+<meta name="twitter:image" content="https://trce.io/assets/blog-covers/you-dont-need-more-contacts.png">
+<meta name="twitter:image:alt" content="You don't need more contacts. You need to find the ones you already have.">
+<link rel="canonical" href="https://trce.io/blog/you-dont-need-more-contacts">
+<link rel="icon" type="image/png" sizes="any" href="/assets/trce-logo-square.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "You don't need more contacts. You need to find the ones you already have.",
+  "description": "Most contact databases decay 30% a year. The real networking problem isn't collecting more names — it's being able to find the right one in 10 seconds.",
+  "author": {
+    "@type": "Organization",
+    "name": "trce",
+    "url": "https://trce.io"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "trce",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://trce.io/logo.png"
+    }
+  },
+  "datePublished": "2026-07-01",
+  "dateModified": "2026-07-01",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://trce.io/blog/you-dont-need-more-contacts"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0e;
+  --surface: #16161e;
+  --surface-2: #1f1f28;
+  --border: #2a2a35;
+  --border-soft: rgba(232,232,238,.08);
+  --text: #e8e8ee;
+  --text-2: rgba(232,232,238,.65);
+  --text-3: rgba(232,232,238,.4);
+  --accent: #00ff88;
+  --accent-dim: rgba(0,255,136,.15);
+  --accent-2: #00d4ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-weight: 300;
+  font-size: 17px;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(10,10,14,.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.logo { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; color: var(--accent); display: flex; align-items: center; gap: 8px; text-decoration: none; }
+.logo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.nav-links { display: flex; gap: 32px; list-style: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.nav-links a { color: var(--text-2); text-decoration: none; transition: color .2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-links a.active { color: var(--accent); }
+.btn-nav { font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 16px; background: var(--accent); color: #0a0a0a; border: none; border-radius: 6px; text-decoration: none; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); }
+
+article {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 80px 32px;
+}
+.back-link {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-3);
+  text-decoration: none;
+  margin-bottom: 48px;
+  display: inline-block;
+}
+.back-link:hover { color: var(--accent); }
+
+.post-header { margin-bottom: 64px; }
+.post-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.post-header h1 {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 200;
+  line-height: 1.15;
+  letter-spacing: -.03em;
+  margin-bottom: 24px;
+}
+.post-header h1 em { font-style: italic; color: var(--text-2); }
+.post-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex; gap: 16px;
+}
+
+article p { margin-bottom: 24px; line-height: 1.75; }
+article h2 {
+  font-size: 28px; font-weight: 400;
+  letter-spacing: -.02em;
+  margin: 56px 0 20px;
+}
+article h3 {
+  font-size: 20px; font-weight: 500;
+  letter-spacing: -.01em;
+  margin: 40px 0 12px;
+}
+article blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 8px 0 8px 20px;
+  margin: 32px 0;
+  color: var(--text-2);
+  font-style: italic;
+}
+article ul, article ol {
+  margin: 16px 0 24px 24px;
+}
+article li { margin-bottom: 8px; line-height: 1.7; }
+article strong { color: var(--text); font-weight: 500; }
+article a { color: var(--accent); }
+article code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.cta-box {
+  margin: 64px 0 32px;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+.cta-box h3 { font-size: 22px; font-weight: 400; margin: 0 0 12px; }
+.cta-box p { font-size: 15px; color: var(--text-2); margin-bottom: 24px; }
+.btn-cta {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.footer {
+  padding: 48px 32px 32px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.footer a { color: var(--text-3); }
+
+@media (max-width: 768px) {
+  .nav { padding: 16px 20px; }
+  .nav-links { display: none; }
+  article { padding: 48px 20px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo"><span class="logo-dot"></span>trce</a>
+  <ul class="nav-links">
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/#pricing">Pricing</a></li>
+    <li><a href="/blog" class="active">Blog</a></li>
+    <li><a href="/#faq">FAQ</a></li>
+  </ul>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a class="btn-nav" href="https://t.me/trceiobot" target="_blank" rel="noopener">Open Bot →</a>
+    <div class="avatar">N</div>
+  </div>
+</nav>
+
+<article>
+
+  <a class="back-link" href="/blog">← All posts</a>
+
+  <header class="post-header">
+    <div class="post-label">Memory</div>
+    <h1>You don't need more contacts. You need to <em>find the ones you already have.</em></h1>
+    <div class="post-meta">
+      <span>trce team</span>
+      <span>·</span>
+      <span>2026-07-01</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </header>
+
+  <p>You walked into ETHDenver with 200 new Telegram QRs. By the time you needed to find the one person who could introduce you to a specific L2 sequencer team, you scrolled for ten minutes, gave up, and DMed someone random. The contact was there. You just couldn't retrieve it.</p>
+
+  <p>This is the failure mode nobody talks about. The networking advice industry is built around <em>collecting</em> more — more cards, more QRs, more connections, more intro emails. Nobody talks about retrieval. And retrieval is the whole game.</p>
+
+  <h2>The 30% decay problem</h2>
+
+  <p>HubSpot's 2024 State of Marketing report found that 60% of sales and marketing professionals say bad contact data is their biggest barrier to closing deals. Salesforce's own research puts the annual B2B contact decay rate at around 30% — phone numbers, job titles, even companies shift that fast in our industry. Gartner's analysis of CRM databases goes further: they estimate only about a quarter of the data sitting in a typical CRM is "clean and accurate" at any given moment.</p>
+
+  <p>So the database you built at Token2049 last year is already a museum. The names are still there, but most of them no longer represent where the person works, what they're shipping, or whether you should be reaching out at all. You have the data. You lost the meaning.</p>
+
+  <h2>Capture is the easy part</h2>
+
+  <p>Building a contact list is mechanical. Open your phone, forward a QR, done. You can collect 100 names at a single hackathon in a day. Retrieval is what's hard — and it's what decides whether the database is worth anything.</p>
+
+  <blockquote>The value of a contact isn't the name. It's the speed at which you can find the right name when you need it.</blockquote>
+
+  <p>Most contact systems fail at the moment of need. You remember you met someone at the Cosmos afterparty who worked on IBC. You open your CRM. You search "IBC". Nothing comes up, because the contact is tagged under "Cosmos" and "afterparty" but the actual conversation was about reorg latency. The right name is three rows below the one you're scanning. You give up and Slack a teammate instead.</p>
+
+  <p>The contact was there. The retrieval model wasn't.</p>
+
+  <h2>Search, not sort</h2>
+
+  <p>Traditional CRMs are built around structured fields: company, role, tag, date added. That works when you're a B2B sales rep working a known-account list. It collapses when you're a founder, investor, or operator working a memory-driven relationship graph that nobody ever agreed on a schema for.</p>
+
+  <p>What you actually need at the moment of retrieval is fuzzy, semantic, and intent-based. You don't want to search "the person I met at the Aptos booth." You want to type "the one working on a Move-based L1 who was skeptical of parallel execution" and get back the three people who actually said that thing in a conversation you had eight months ago.</p>
+
+  <p>That's not a CRM problem. That's a search problem. And search problems are why we built <code>@trceiobot</code> around how you actually think, not how spreadsheets think.</p>
+
+  <h2>The retrieval test</h2>
+
+  <p>Here's a test for whether your current contact system is doing anything for you. Pick any one of these prompts and try to answer it in under ten seconds, from memory or from the tool:</p>
+
+  <ul>
+    <li>Who did I meet at Consensus last year that was building a DEX on Celestia?</li>
+    <li>Who's the one engineer I talked to at Devconnect who cares about zk-coprocessors?</li>
+    <li>What was the name of the fund partner who was bullish on intent-based architectures?</li>
+    <li>Which two people I met in Singapore asked me about restaking and seemed serious?</li>
+  </ul>
+
+  <p>If you can't answer three of those in ten seconds, you don't have a contact problem. You have a retrieval problem. Adding more names to the same broken system will only make retrieval slower.</p>
+
+  <h2>What to do about it</h2>
+
+  <p>Three things. First, stop treating the database as a list. Treat it as a search index — every contact you add should be tagged with the specific <em>claim or question</em> that made them memorable, not just their job title. "Founder of a Move-based L1 who thinks parallel execution is overhyped" beats "CEO, L1, 2025" every time.</p>
+
+  <p>Second, retire the contacts you can't remember anything about. A database of 800 names you can't retrieve is worse than 80 you can find in five seconds. Decay isn't just a data problem. It's a curation problem.</p>
+
+  <p>Third, capture at the moment of insight, not the moment of handshake. The 6-second voice note you record at the bar — "the one working on solver infrastructure who thinks the next cycle is intent-based" — is the kind of context that makes retrieval possible three months later.</p>
+
+  <p>You don't need another event. You don't need another scanning app. You need a database that can answer "who was that person" in the time it takes to think the question. That's the whole job.</p>
+
+  <div class="cta-box">
+    <h3>Find the contact you already have.</h3>
+    <p>Open @trceiobot and try the prompt you've been meaning to ask your contact list. See what comes back.</p>
+    <a class="btn-cta" href="https://t.me/trceiobot" target="_blank" rel="noopener">Open @trceiobot →</a>
+  </div>
+
+</article>
+
+<footer class="footer">
+  © 2026 trce · <a href="/" style="color: var(--text-3);">Home</a> · <a href="/blog" style="color: var(--text-3);">All posts</a>
+</footer>
+
+</body>
+</html>
