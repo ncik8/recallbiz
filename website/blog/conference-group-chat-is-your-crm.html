@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The conference Telegram group is your real contact list</title>
+<meta name="description" content="The 800-person Telegram group is the dataset nobody mines. Why the chat you skim is the contact list you already paid for.">
+<meta property="og:title" content="The conference Telegram group is your real contact list">
+<meta property="og:site_name" content="trce">
+<meta property="og:description" content="The 800-person Telegram group is the dataset nobody mines. Why the chat you skim is the contact list you already paid for.">
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://trce.io/blog/conference-group-chat-is-your-crm">
+<meta property="og:image" content="https://trce.io/assets/blog-covers/conference-group-chat-is-your-crm.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The conference Telegram group is your real contact list">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The conference Telegram group is your real contact list">
+<meta name="twitter:description" content="The 800-person Telegram group is the dataset nobody mines. Why the chat you skim is the contact list you already paid for.">
+<meta name="twitter:image" content="https://trce.io/assets/blog-covers/conference-group-chat-is-your-crm.png">
+<meta name="twitter:image:alt" content="The conference Telegram group is your real contact list">
+<link rel="canonical" href="https://trce.io/blog/conference-group-chat-is-your-crm">
+<link rel="icon" type="image/png" sizes="any" href="/assets/trce-logo-square.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "The conference Telegram group is your real contact list",
+  "description": "The 800-person Telegram group is the dataset nobody mines. Why the chat you skim is the contact list you already paid for.",
+  "author": {
+    "@type": "Organization",
+    "name": "trce",
+    "url": "https://trce.io"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "trce",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://trce.io/logo.png"
+    }
+  },
+  "datePublished": "2026-08-10",
+  "dateModified": "2026-08-10",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://trce.io/blog/conference-group-chat-is-your-crm"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0e;
+  --surface: #16161e;
+  --surface-2: #1f1f28;
+  --border: #2a2a35;
+  --border-soft: rgba(232,232,238,.08);
+  --text: #e8e8ee;
+  --text-2: rgba(232,232,238,.65);
+  --text-3: rgba(232,232,238,.4);
+  --accent: #00ff88;
+  --accent-dim: rgba(0,255,136,.15);
+  --accent-2: #00d4ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-weight: 300;
+  font-size: 17px;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(10,10,14,.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-soft);
+}
+.logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px; font-weight: 500;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none;
+}
+.logo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.nav-links { display: flex; gap: 32px; list-style: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.nav-links a { color: var(--text-2); text-decoration: none; transition: color .2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-links a.active { color: var(--accent); }
+.btn-nav { font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 16px; background: var(--accent); color: #0a0a0a; border: none; border-radius: 6px; text-decoration: none; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); }
+
+article {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 80px 32px;
+}
+.back-link {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-3);
+  text-decoration: none;
+  margin-bottom: 48px;
+  display: inline-block;
+}
+.back-link:hover { color: var(--accent); }
+
+.post-header { margin-bottom: 64px; }
+.post-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.post-header h1 {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 200;
+  line-height: 1.15;
+  letter-spacing: -.03em;
+  margin-bottom: 24px;
+}
+.post-header h1 em { font-style: italic; color: var(--text-2); }
+.post-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex; gap: 16px;
+}
+
+article p { margin-bottom: 24px; line-height: 1.75; }
+article h2 {
+  font-size: 28px; font-weight: 400;
+  letter-spacing: -.02em;
+  margin: 56px 0 20px;
+}
+article h3 {
+  font-size: 20px; font-weight: 500;
+  letter-spacing: -.01em;
+  margin: 40px 0 12px;
+}
+article blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 8px 0 8px 20px;
+  margin: 32px 0;
+  color: var(--text-2);
+  font-style: italic;
+}
+article ul, article ol {
+  margin: 16px 0 24px 24px;
+}
+article li { margin-bottom: 8px; line-height: 1.7; }
+article strong { color: var(--text); font-weight: 500; }
+article a { color: var(--accent); }
+article code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.cta-box {
+  margin: 64px 0 32px;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+.cta-box h3 { font-size: 22px; font-weight: 400; margin: 0 0 12px; }
+.cta-box p { font-size: 15px; color: var(--text-2); margin-bottom: 24px; }
+.btn-cta {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 14px 28px;
+  background: var(--accent);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.footer {
+  padding: 48px 32px 32px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.footer a { color: var(--text-3); }
+
+@media (max-width: 768px) {
+  .nav { padding: 16px 20px; }
+  .nav-links { display: none; }
+  article { padding: 48px 20px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo"><span class="logo-dot"></span>trce</a>
+  <ul class="nav-links">
+    <li><a href="/#how">How it works</a></li>
+    <li><a href="/#pricing">Pricing</a></li>
+    <li><a href="/blog" class="active">Blog</a></li>
+    <li><a href="/#faq">FAQ</a></li>
+  </ul>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <a class="btn-nav" href="https://t.me/trceiobot" target="_blank" rel="noopener">Open Bot →</a>
+    <div class="avatar">N</div>
+  </div>
+</nav>
+
+<article>
+
+  <a class="back-link" href="/blog">← All posts</a>
+
+  <header class="post-header">
+    <div class="post-label">Telegram-native workflows</div>
+    <h1>The conference Telegram group is your real contact list</h1>
+    <div class="post-meta">
+      <span>trce</span>
+      <span>·</span>
+      <span>2026-08-10</span>
+      <span>·</span>
+      <span>5 min read</span>
+    </div>
+  </header>
+
+  <p>You walked into Token2049, scanned 30 Telegram QR codes, and survived the afterparty. The next morning a group chat lands in your inbox with 814 members. You scroll, smile at a few names, and mute it forever. That mute is the most expensive button you will press all quarter.</p>
+
+  <p>The conference Telegram group is a contact database dressed up as a chat. Most people treat it as small talk. The handful who treat it as a CRM close deals.</p>
+
+  <h2>Why the group chat is the dataset nobody mines</h2>
+
+  <p>Every conference Telegram group carries the same metadata for free: usernames, profile photos, the exact time someone asked a question, the questions they chose to ask, the threads they replied to. A typical Token2049 side-event group hits 600 to 1,200 members within 48 hours and never shrinks — Telegram's retention curve is famously flat because people don't leave a chat they were added to.</p>
+
+  <p>That is roughly 800 self-identified crypto operators, each one with a public handle, already filtered by willingness to pay $1,200 plus a flight to attend. Nobody in that group is cold. You share the venue, the panel, and the memory of the speaker who bombed.</p>
+
+  <blockquote>The chat you muted is the contact list you already paid for. The cost of attending was the filter. The group is the deliverable.</blockquote>
+
+  <h2>What "mining" the group actually looks like</h2>
+
+  <p>Mining a Telegram group is not scrolling. It is four small habits:</p>
+
+  <ul>
+    <li><strong>Pin three names per day</strong> — anyone who asked a sharp question, pushed back on a take, or shared a relevant deck.</li>
+    <li><strong>Capture the question, not the name</strong> — "who's the actual underwriter for X" is more searchable six months later than "Marcus from Acme."</li>
+    <li><strong>Note the thread, not just the sender</strong> — the strongest weak-tie signal at any event is who replies to whom at 1am.</li>
+    <li><strong>Forward the handle to your bot</strong> — five seconds, one contact, no spreadsheet.</li>
+  </ul>
+
+  <p>HubSpot's 2024 State of Marketing report found that personalized outreach based on observed behavior converts at roughly 2x the rate of generic cold email. A Telegram group chat is observed behavior with a timestamp and a topic attached — the most personalization-rich dataset you will ever have for free.</p>
+
+  <h2>The timing math nobody talks about</h2>
+
+  <p>InsideSales.com's Lead Response Management study is the cleanest dataset on reply probability: a contact is 21x more likely to qualify if you reply within five minutes versus 30 minutes later. The reply curve then decays logarithmically through 24 hours, then collapses past 48.</p>
+
+  <p>A conference Telegram group gives you a parallel channel that does not decay. The chat is still alive on day three, day ten, day sixty. The Lead Response math still applies, but the window is wider.</p>
+
+  <p>The mistake is treating the group as background noise. The right move is to pick the three highest-signal names each day and reply to something they wrote in the group — in-thread, in public. Public reply first, DM second. The first message costs nothing. The second carries the context the public reply created.</p>
+
+  <h2>The system for a 1,000-person group</h2>
+
+  <p>If you walked away from Token2049, KBW, or Devconnect with a Telegram group of 600+ people, you have a 30-day project, not a contact list:</p>
+
+  <ul>
+    <li><strong>Day 1 to 3:</strong> skim top-to-bottom, pin the 12 sharpest voices, forward each to <code>@trceiobot</code> with one line of context.</li>
+    <li><strong>Day 4 to 14:</strong> reply in-thread to two messages per day from your shortlist. No pitches, just a real question.</li>
+    <li><strong>Day 15 to 30:</strong> DM the five who engaged back. The conversation is already half-started — that is the entire advantage.</li>
+    <li><strong>Day 31 onward:</strong> archive. The group is now a record. Your ten real contacts live in your bot, not in the chat.</li>
+  </ul>
+
+  <p>That is the whole system. The conference was the filter. The Telegram group is the deliverable. The 30 days of light follow-through are what separates the people who left with a contact list from the people who left with a network.</p>
+
+  <div class="cta-box">
+    <h3>Stop losing the group chat to the mute button.</h3>
+    <p>Forward one Telegram handle right now. One second of effort, one contact you will actually find again.</p>
+    <a class="btn-cta" href="https://t.me/trceiobot" target="_blank" rel="noopener">Open @trceiobot →</a>
+  </div>
+
+</article>
+
+<footer class="footer">
+  © 2026 trce · <a href="/" style="color: var(--text-3);">Home</a> · <a href="/blog" style="color: var(--text-3);">All posts</a>
+</footer>
+
+</body>
+</html>
