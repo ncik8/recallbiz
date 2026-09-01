@@ -806,14 +806,40 @@ async def _add_note(update, context, target: str, note_text: str) -> None:
         if len(matches) == 1:
             contact = matches[0]
         else:
-            # Disambiguation
-            lines = [f'Multiple contacts match "{target}":']
+            # Disambiguation — show inline buttons, one per matching contact.
+            # User taps a button → callback handler fires with contact_id encoded.
+            # We stash the note_text in context.user_data so the callback can apply it.
+            keyboard = []
+            for m in matches[:5]:
+                co = f" — {m['company']}" if m.get("company") else ""
+                notes_preview = (m.get("notes") or "(no notes)")[:50]
+                label = f"{m['name']}{co}"
+                # callback_data format: "note_pick:<contact_id>"
+                # contact_id is a UUID, safe to embed
+                keyboard.append([
+                    InlineKeyboardButton(
+                        label,
+                        callback_data=f"note_pick:{m['id']}"
+                    )
+                ])
+            # Store note_text + matches list so the callback can find them
+            context.user_data["pending_note"] = {
+                "note_text": note_text,
+                "matches": [
+                    {"id": m["id"], "name": m["name"], "company": m.get("company")}
+                    for m in matches[:5]
+                ],
+            }
+            lines = [f'Multiple contacts match "{target}". Pick one:']
             for i, m in enumerate(matches[:5], 1):
                 co = f" — {m['company']}" if m.get("company") else ""
                 notes_preview = (m.get("notes") or "(no notes)")[:60]
-                lines.append(f"{i}. {m['name']}{co}\n   notes: {notes_preview}")
-            lines.append("\nReply with: \"add a note to <number or name> <text>\"")
-            await update.message.reply_text("\n".join(lines))
+                lines.append(f"{i}. {m['name']}{co}")
+                lines.append(f"   notes: {notes_preview}")
+            await update.message.reply_text(
+                "\n".join(lines),
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
             return
 
     # Append note (preserves existing notes)
@@ -829,6 +855,61 @@ async def _add_note(update, context, target: str, note_text: str) -> None:
         log_usage(user_id, "note_added_via_index_or_name", f"contact_id={contact_id}")
     else:
         await update.message.reply_text("Couldn't save that note. Try again?")
+
+
+async def note_pick_callback(update, context) -> None:
+    """Handle a tap on the disambiguation button from /note.
+
+    Reads contact_id from callback_data, looks up the contact name from
+    the stashed pending_note, applies the note, confirms. Clears
+    pending_note so the same button can't be tapped twice.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    pending = (context.user_data or {}).pop("pending_note", None)
+    if not pending:
+        await query.edit_message_text(
+            "That selection expired. Run /note again with the contact name."
+        )
+        return
+
+    # callback_data format: "note_pick:<contact_id>"
+    contact_id = query.data.split(":", 1)[1] if ":" in query.data else ""
+    match = next((m for m in pending["matches"] if m["id"] == contact_id), None)
+    if not match:
+        await query.edit_message_text(
+            "Couldn't find that contact. Run /note again with the contact name."
+        )
+        return
+
+    note_text = pending["note_text"]
+    existing_notes = match.get("notes") or ""  # Note: matches don't carry notes from find_contacts_by_name in this path
+    # We need the existing notes from DB before appending, otherwise we overwrite.
+    # Refetch the contact to get current notes.
+    user_id = await _resolve_user_id(update, context)
+    contact = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: next(
+            (c for c in find_contacts_by_name(user_id, match["name"]) if c["id"] == contact_id),
+            None
+        )
+    )
+    if not contact:
+        await query.edit_message_text("Couldn't reload that contact. Try /note again.")
+        return
+    existing_notes = contact.get("notes") or ""
+    new_notes = (existing_notes + "\n" + note_text).strip() if existing_notes else note_text
+
+    ok = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: update_contact_notes(contact_id, new_notes)
+    )
+    if ok:
+        await query.edit_message_text(
+            f'✓ Note added to {match["name"]}: "{note_text}"'
+        )
+        log_usage(user_id, "note_added_via_button", f"contact_id={contact_id}")
+    else:
+        await query.edit_message_text("Couldn't save that note. Try again?")
 
 
 async def note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1809,6 +1890,7 @@ def main():
     app.add_handler(CommandHandler("ask", ask_cmd))
     app.add_handler(CommandHandler("billing", billing_cmd))
     app.add_handler(CallbackQueryHandler(upgrade_callback, pattern="^upgrade_(monthly|annual|pro_plus_monthly)$"))
+    app.add_handler(CallbackQueryHandler(note_pick_callback, pattern="^note_pick:"))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
