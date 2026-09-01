@@ -750,6 +750,124 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         when = c["saved_at"][:16] if c.get("saved_at") else ""
         lines.append(f"{i}. {c['name']}{h}{co}{ti} · {when}")
     await update.message.reply_text("\n".join(lines))
+    # Cache the list so "add a note to 3" can resolve by index
+    context.user_data["last_list"] = [
+        {"id": c["id"], "name": c["name"], "company": c.get("company")}
+        for c in rows
+    ]
+
+
+async def _add_note(update, context, target: str, note_text: str) -> None:
+    """Resolve target (name or index from last /list), append note, confirm.
+
+    Args:
+        target: contact name (partial match) OR "3" / "5" — index from cached last_list
+        note_text: what to add as the note
+
+    Behavior:
+        - Empty note → reply "Note can't be empty" (no save)
+        - Index that doesn't exist → reply "Run /list first" or "No contact at index N"
+        - Single name match → save + confirm
+        - Multiple name matches → list candidates with notes preview, ask user to disambiguate
+        - AI enrichment DOES NOT fire here — notes are different from company info
+    """
+    user_id = await _resolve_user_id(update, context)
+    target = target.strip()
+    note_text = note_text.strip()
+
+    if not note_text:
+        await update.message.reply_text("Note can't be empty.")
+        return
+
+    contact = None
+
+    # 1. Try index resolution from cached last_list (1-based)
+    if target.isdigit():
+        idx = int(target) - 1
+        last_list = (context.user_data or {}).get("last_list") or []
+        if not last_list:
+            await update.message.reply_text("Run /list first, then say 'add a note to N'.")
+            return
+        if 0 <= idx < len(last_list):
+            contact = last_list[idx]
+        else:
+            await update.message.reply_text(f"No contact at index {target}. Run /list to see valid numbers.")
+            return
+    else:
+        # 2. Name match
+        matches = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: find_contacts_by_name(user_id, target)
+        )
+        if not matches:
+            await update.message.reply_text(
+                f"No contact named \"{target}\". Try /list or /find <name>."
+            )
+            return
+        if len(matches) == 1:
+            contact = matches[0]
+        else:
+            # Disambiguation
+            lines = [f'Multiple contacts match "{target}":']
+            for i, m in enumerate(matches[:5], 1):
+                co = f" — {m['company']}" if m.get("company") else ""
+                notes_preview = (m.get("notes") or "(no notes)")[:60]
+                lines.append(f"{i}. {m['name']}{co}\n   notes: {notes_preview}")
+            lines.append("\nReply with: \"add a note to <number or name> <text>\"")
+            await update.message.reply_text("\n".join(lines))
+            return
+
+    # Append note (preserves existing notes)
+    contact_id = contact["id"]
+    existing_notes = contact.get("notes") or ""
+    new_notes = (existing_notes + "\n" + note_text).strip() if existing_notes else note_text
+
+    ok = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: update_contact_notes(contact_id, new_notes)
+    )
+    if ok:
+        await update.message.reply_text(f'✓ Note added to {contact["name"]}: "{note_text}"')
+        log_usage(user_id, "note_added_via_index_or_name", f"contact_id={contact_id}")
+    else:
+        await update.message.reply_text("Couldn't save that note. Try again?")
+
+
+async def note_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/note <name_or_index> <text...> — add a note to a contact.
+
+    Examples:
+      /note "Vitalik Buterin" met at TOKEN2049 SG
+      /note 3 we met in starbucks at token 2049
+    """
+    if await _require_signup(update, context, action="add a note"):
+        return
+    # Parse args: first token is target (name with quotes, or index), rest is note text
+    args = update.message.text.split(None, 1)  # split on whitespace, max 1 split
+    if len(args) < 2:
+        await update.message.reply_text(
+            'Usage: /note <name or index> <text>\n'
+            'e.g. /note "Vitalik Buterin" met at TOKEN2049 SG\n'
+            'e.g. /note 3 we met in starbucks at token 2049'
+        )
+        return
+    rest = args[1]
+    # Extract first token as target — could be quoted
+    if rest.startswith('"'):
+        # quoted name
+        end_quote = rest.find('"', 1)
+        if end_quote == -1:
+            await update.message.reply_text('Unclosed quote. Try: /note "Full Name" <text>')
+            return
+        target = rest[1:end_quote]
+        note_text = rest[end_quote + 1:].strip()
+    else:
+        # First word is target, rest is note
+        parts = rest.split(None, 1)
+        target = parts[0]
+        note_text = parts[1] if len(parts) > 1 else ""
+    if not note_text:
+        await update.message.reply_text("Note can't be empty. Try: /note <name or index> <text>")
+        return
+    await _add_note(update, context, target, note_text)
 
 
 async def find_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1674,6 +1792,7 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("save", save_cmd))
     app.add_handler(CommandHandler("list", list_cmd))
+    app.add_handler(CommandHandler("note", note_cmd))
     app.add_handler(CommandHandler("find", find_cmd))
     app.add_handler(CommandHandler("trip", trip_cmd))
     app.add_handler(CommandHandler("send", send_cmd))
