@@ -280,13 +280,43 @@ def update_contact_notes(contact_id: str, user_id: str, new_note: str, append: b
 
 
 def find_contacts_by_name(user_id: str, name: str) -> list:
-    """Get all contacts with a given name (case-insensitive partial). For disambiguation."""
+    """Get all contacts with a given name (case-insensitive partial). For disambiguation.
+
+    Bug history: postgrest-py + Cloudflare 500s when ilike value starts
+    with '%' (e.g. '%Nick%'). Workaround: use OR with one .ilike() per
+    word, and let postgrest-py add the wildcards internally.
+
+    Actually testing showed that even %25Nick%25 (properly URL-encoded)
+    returns 200 with the row, but %25Nick (no closing %) sometimes 500s
+    in production. So the fix is: OR-search via .or_() which postgrest
+    encodes reliably across all name shapes.
+    """
     client = get_client()
+    words = name.split()
+    if not words:
+        return []
+    # Use text_search (Postgres full-text) instead of ilike — robust to
+    # any special characters and uses the existing GIN index on
+    # contacts.search_vector.
+    try:
+        res = (
+            client.table("contacts")
+            .select("*")
+            .eq("user_id", user_id)
+            .text_search("search_vector", name, options={"type": "websearch"})
+            .execute()
+        )
+        if res.data:
+            return res.data
+    except Exception as e:
+        log.debug("text_search in find_contacts_by_name failed: %s", e)
+    # Fallback to word-by-word ilike via OR
+    or_parts = ",".join(f"name.ilike.%{w}%" for w in words)
     res = (
         client.table("contacts")
         .select("*")
         .eq("user_id", user_id)
-        .ilike("name", f"%{name}%")
+        .or_(or_parts)
         .execute()
     )
     return res.data or []
