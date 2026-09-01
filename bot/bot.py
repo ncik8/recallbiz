@@ -3,7 +3,7 @@ import os
 import re
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -2093,17 +2093,46 @@ async def _reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user's pending + active recurring reminders."""
+    """Show user's pending + active recurring reminders, formatted in user's tz."""
     from db import list_reminders as db_list
     user_id = context.user_data.get("user_id") or await _resolve_user_id(update, context)
     pending = db_list(user_id, status="pending", limit=20)
     if not pending:
         await update.message.reply_text("No pending reminders.")
         return
+
+    # Get user's tz (already saved on each reminder row, but use the user's
+    # current setting as the display tz in case it changed since reminder was set)
+    from db import get_client as _gc
+    def _get_tz():
+        client = _gc()
+        res = client.table("users").select("timezone").eq("id", user_id).maybe_single().execute()
+        return (res.data or {}).get("timezone") or "Asia/Hong_Kong"
+    user_tz_name = await asyncio.get_event_loop().run_in_executor(None, _get_tz)
+    try:
+        user_tz = ZoneInfo(user_tz_name)
+    except Exception:
+        user_tz = ZoneInfo("Asia/Hong_Kong")
+
+    def _format_due(due_iso: str) -> str:
+        """Convert ISO8601 (possibly UTC) to a friendly local time string."""
+        if not due_iso:
+            return "(no due date)"
+        try:
+            # Handle both '2026-09-03T03:00:00+00:00' and Postgres '2026-09-03 03:00:00+00'
+            iso = due_iso.replace(" ", "T")
+            dt = datetime.fromisoformat(iso)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            local_dt = dt.astimezone(user_tz)
+            # Friendly format: "Sep 3, 11:00 HKT"
+            return local_dt.strftime("%b %-d, %H:%M %Z")
+        except Exception:
+            return due_iso  # fall back to raw if parse fails
+
     lines = ["Your pending reminders:"]
     for r in pending:
-        # Parse due_at for friendly display
-        due = r["due_at"]
+        due_str = _format_due(r.get("due_at", ""))
         contact_name = ""
         if r.get("contact"):
             contact_name = f" (linked to {r['contact'].get('name')})"
@@ -2113,7 +2142,7 @@ async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             if r.get("recurrence_end"):
                 recur += f" until {r['recurrence_end']}"
             recur += "]"
-        lines.append(f"\n- {r['message']}{contact_name}\n  Fires: {due}{recur}")
+        lines.append(f"\n- {r['message']}{contact_name}\n  Fires: {due_str}{recur}")
     await update.message.reply_text("\n".join(lines))
 
 
