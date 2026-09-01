@@ -633,6 +633,24 @@ async def save_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def skip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Route /skip to the active wizard (save wizard, etc.).
+
+    Without this CommandHandler, /skip is silently dropped because
+    filters.COMMAND excludes it from echo_text but no CommandHandler is
+    registered for "skip". The wizard at _handle_save_message already
+    handles text == "/skip" correctly — we just need to get the message
+    to it.
+    """
+    # Mimic what echo_text routing would do if /skip was plain text
+    if context.user_data.get("save_step"):
+        # Re-route as if it was normal text
+        await _handle_save_message(update, context)
+        return
+    # No active wizard — echo back a friendly message
+    await update.message.reply_text("Nothing to skip right now.")
+
+
 async def _handle_save_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Process the current save step."""
     step = context.user_data.get("save_step")
@@ -1661,6 +1679,7 @@ def main():
     app.add_handler(CommandHandler("send", send_cmd))
     app.add_handler(CommandHandler("reminders", reminders_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
+    app.add_handler(CommandHandler("skip", skip_cmd))
     app.add_handler(CommandHandler("signup", signup_cmd))
     app.add_handler(CommandHandler("setpassword", setpassword_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
