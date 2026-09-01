@@ -794,36 +794,28 @@ async def _add_note(update, context, target: str, note_text: str) -> None:
             await update.message.reply_text(f"No contact at index {target}. Run /list to see valid numbers.")
             return
     else:
-        # 2. Name match — progressive longest-prefix resolution.
-        # Start with the user's split target ("Wei"), find matches.
-        # Then try extending with successive words from note_text until
-        # the match set shrinks to a single contact. The longest match
-        # that still has results becomes the contact; remainder is the note.
-        # Example: "/note Wei Zhang Test 4 wants an ai agent"
-        #   iter 1: target="Wei"         → matches both Test 4 + Test 5
-        #   iter 2: target="Wei Zhang"   → matches both
-        #   iter 3: target="Wei Zhang Test" → matches both
-        #   iter 4: target="Wei Zhang Test 4" → matches Test 4 only → use it
-        #   remainder = "wants an ai agent"
-        words = note_text.split()
-        target_words = [target]
-        note_words = words  # words available to add to target
+        # 2. Name match — single-word target lookup with disambiguation.
+        # We previously tried progressive prefix expansion, but that ate
+        # note words into the target. Better: use just the first word as
+        # the target. If 0 matches, try each subsequent word as the
+        # single-word target (e.g. user typed "Zhang 5" instead of
+        # "Zhang Test 5"). If still no match, error.
+        # If matches > 1, show disambiguation buttons with the FULL
+        # original note_text — user picks which contact to attach the
+        # full message to.
+        words_after_target = note_text.split()
+        # Try single-word targets: the user's literal split, then each
+        # subsequent word in case the user started with noise.
+        candidates_to_try = [target] + words_after_target
         matches = []
-
-        # First try the user's literal split — single-word target
-        matches = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: find_contacts_by_name(user_id, " ".join(target_words))
-        )
-        # Then expand until we get an EXACT (single) match
-        while len(matches) != 1 and note_words:
-            # Pull next word from note_words into the target
-            target_words.append(note_words.pop(0))
+        for cand in candidates_to_try:
             matches = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: find_contacts_by_name(user_id, " ".join(target_words))
+                None, lambda c=cand: find_contacts_by_name(user_id, c)
             )
-
-        target = " ".join(target_words)
-        note_text = " ".join(note_words)
+            if matches:
+                # Keep original target/note_text intact — they go to
+                # the callback verbatim if disambiguation is needed.
+                break
 
         if not matches:
             await update.message.reply_text(
@@ -833,14 +825,6 @@ async def _add_note(update, context, target: str, note_text: str) -> None:
         if len(matches) == 1:
             contact = matches[0]
         else:
-            # Still ambiguous after expanding as much as possible.
-            # Show disambiguation. The user can pick one and we save
-            # whatever note_text remains (could be empty if we pulled
-            # everything into target).
-            # Disambiguation — show inline buttons, one per matching contact.
-            # Disambiguation — show inline buttons, one per matching contact.
-            # User taps a button → callback handler fires with contact_id encoded.
-            # We stash the note_text in context.user_data so the callback can apply it.
             keyboard = []
             for m in matches[:5]:
                 co = f" — {m['company']}" if m.get("company") else ""
