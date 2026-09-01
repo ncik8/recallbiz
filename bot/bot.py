@@ -742,19 +742,24 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "No contacts yet. Try /save or forward a Telegram QR image."
         )
         return
-    lines = ["Your last 10 contacts:\n"]
-    for i, c in enumerate(rows, 1):
-        h = f" @{c['handle']}" if c.get("handle") else ""
-        co = f" — {c['company']}" if c.get("company") else ""
-        ti = f", {c['title']}" if c.get("title") else ""
-        when = c["saved_at"][:16] if c.get("saved_at") else ""
-        lines.append(f"{i}. {c['name']}{h}{co}{ti} · {when}")
-    await update.message.reply_text("\n".join(lines))
-    # Cache the list so "add a note to 3" can resolve by index
+    # Cache the list so /note N still works without re-typing /list
     context.user_data["last_list"] = [
         {"id": c["id"], "name": c["name"], "company": c.get("company")}
         for c in rows
     ]
+    # Emit one button per contact. Tap → full contact card with notes + AI description.
+    # Truncate labels to fit Telegram's 64-char callback_data limit comfortably.
+    keyboard = []
+    for i, c in enumerate(rows, 1):
+        co = f" — {c['company']}" if c.get("company") else ""
+        label = f"{i}. {c['name']}{co}"[:60]
+        keyboard.append([
+            InlineKeyboardButton(label, callback_data=f"contact_view:{c['id']}")
+        ])
+    await update.message.reply_text(
+        f"Your last {len(rows)} contacts — tap one to see details:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 
 async def _add_note(update, context, target: str, note_text: str) -> None:
@@ -871,6 +876,112 @@ async def _add_note(update, context, target: str, note_text: str) -> None:
         log_usage(user_id, "note_added_via_index_or_name", f"contact_id={contact_id}")
     else:
         await update.message.reply_text("Couldn't save that note. Try again?")
+
+
+async def contact_view_callback(update, context) -> None:
+    """Handle a tap on a /list button → show full contact card."""
+    from db import get_client as _gc
+    query = update.callback_query
+    await query.answer()
+
+    contact_id = query.data.split(":", 1)[1] if ":" in query.data else ""
+    if not contact_id:
+        return
+
+    def _fetch():
+        client = _gc()
+        res = (
+            client.table("contacts")
+            .select("*")
+            .eq("id", contact_id)
+            .maybe_single()
+            .execute()
+        )
+        return res.data
+
+    contact = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    if not contact:
+        await query.edit_message_text("Couldn't load that contact.")
+        return
+
+    # Build the card
+    lines = [f"**{contact.get('name', '?')}**"]
+    if contact.get("title"):
+        lines.append(f"  {contact['title']}")
+    if contact.get("company"):
+        lines.append(f"  at {contact['company']}")
+    if contact.get("handle"):
+        lines.append(f"  @{contact['handle']}")
+    if contact.get("email"):
+        lines.append(f"  ✉️ {contact['email']}")
+    if contact.get("phone"):
+        lines.append(f"  📞 {contact['phone']}")
+    if contact.get("website"):
+        lines.append(f"  🌐 {contact['website']}")
+    if contact.get("saved_at"):
+        lines.append(f"  saved {contact['saved_at'][:10]}")
+
+    if contact.get("notes"):
+        lines.append("")
+        lines.append("**Notes:**")
+        # Each line is a separate note (we appended with \n separator)
+        for note_line in contact["notes"].split("\n"):
+            lines.append(f"  • {note_line}")
+
+    if contact.get("ai_description"):
+        lines.append("")
+        lines.append("**AI enrichment:**")
+        lines.append(contact["ai_description"][:400])
+
+    # Add "Add note" button below
+    keyboard = [[
+        InlineKeyboardButton(
+            "➕ Add note",
+            callback_data=f"contact_note:{contact_id}"
+        )
+    ]]
+    await query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def contact_note_callback(update, context) -> None:
+    """Tap 'Add note' on a contact card → prompt user for note text.
+
+    Sets pending_note_for in context.user_data so the next text message
+    from the user gets saved as the note.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    contact_id = query.data.split(":", 1)[1] if ":" in query.data else ""
+    if not contact_id:
+        return
+    # Look up the name so we can show "adding note to X"
+    from db import get_client as _gc
+    def _fetch():
+        client = _gc()
+        res = (
+            client.table("contacts")
+            .select("name")
+            .eq("id", contact_id)
+            .maybe_single()
+            .execute()
+        )
+        return res.data
+    contact = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    name = (contact or {}).get("name", "this contact")
+    context.user_data["pending_note_for"] = {
+        "contact_id": contact_id,
+        "name": name,
+    }
+    await query.edit_message_text(
+        f"Adding a note to **{name}**.\n\n"
+        f"Type the note text and send. (Anything goes — meeting context, "
+        f"follow-ups, \"met at TOKEN2049\", whatever.)\n\n"
+        f"Or /cancel to skip."
+    )
 
 
 async def note_pick_callback(update, context) -> None:
@@ -1907,6 +2018,8 @@ def main():
     app.add_handler(CommandHandler("billing", billing_cmd))
     app.add_handler(CallbackQueryHandler(upgrade_callback, pattern="^upgrade_(monthly|annual|pro_plus_monthly)$"))
     app.add_handler(CallbackQueryHandler(note_pick_callback, pattern="^note_pick:"))
+    app.add_handler(CallbackQueryHandler(contact_view_callback, pattern="^contact_view:"))
+    app.add_handler(CallbackQueryHandler(contact_note_callback, pattern="^contact_note:"))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
