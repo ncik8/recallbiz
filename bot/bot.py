@@ -293,6 +293,8 @@ Long-press in your chat list → "Pin". You'll want TRCE at the top during event
   /list  — your recent contacts
   /find  — search by name, company, notes
   /trip  — start/stop a trip (auto-tag who you meet)
+  /remind — natural-language reminders (e.g. "tomorrow at 10am call Mike")
+  /timezone — set your timezone so reminders show in your local time
   /upgrade — go Pro ($9.99/mo or $99/yr) — pay right here in chat
   /ask — web search (Pro Plus: $19.99/mo) — get cited answers about people/companies
   /billing — show your current plan
@@ -956,6 +958,53 @@ async def contact_view_callback(update, context) -> None:
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+async def tz_pick_callback(update, context) -> None:
+    """Handle a tap on a /timezone button → set the user's timezone.
+
+    callback_data format: 'tz_pick:<IANA_zone>' or 'tz_pick:__prompt'
+    (the __prompt branch shows a text prompt for users who want to type a
+    custom zone — same as typing /timezone <zone> manually).
+    """
+    from db import get_client as _gc
+    query = update.callback_query
+    await query.answer()
+    tz_name = query.data.split(":", 1)[1] if ":" in query.data else ""
+    if not tz_name:
+        return
+    if tz_name == "__prompt__":
+        await query.edit_message_text(
+            "Type your timezone as an IANA name, e.g.:\n\n"
+            "`/timezone Asia/Hong_Kong`\n"
+            "`/timezone America/New_York`\n"
+            "`/timezone Europe/London`\n\n"
+            "Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+        )
+        return
+    # Validate IANA
+    try:
+        ZoneInfo(tz_name)
+    except Exception:
+        await query.edit_message_text(
+            f"⚠️ '{tz_name}' isn't a valid IANA timezone. "
+            f"Try /timezone <zone> with a name from Wikipedia's tz list."
+        )
+        return
+    # Persist
+    user_id = await _resolve_user_id(update, context)
+    def _set():
+        client = _gc()
+        return client.table("users").update({"timezone": tz_name}).eq("id", user_id).execute()
+    result = await asyncio.get_event_loop().run_in_executor(None, _set)
+    if result.data:
+        now_in_tz = datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
+        await query.edit_message_text(
+            f"✓ Timezone set to **{tz_name}**\nCurrent time there: {now_in_tz}"
+        )
+        log_usage(user_id, "tz_set_via_button", tz_name)
+    else:
+        await query.edit_message_text("Couldn't save timezone. Try again?")
 
 
 async def contact_remind_callback(update, context) -> None:
@@ -2204,13 +2253,37 @@ async def timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 f"Your timezone: **{current}**\nCurrent time there: {now_in_tz}"
             )
         else:
+            # No timezone set yet — show inline buttons for the most common zones.
+            # User taps one → callback updates their tz and confirms.
+            keyboard = [
+                [
+                    InlineKeyboardButton("🇭🇰 Asia/Hong_Kong", callback_data="tz_pick:Asia/Hong_Kong"),
+                    InlineKeyboardButton("🇸🇬 Asia/Singapore", callback_data="tz_pick:Asia/Singapore"),
+                ],
+                [
+                    InlineKeyboardButton("🇯🇵 Asia/Tokyo", callback_data="tz_pick:Asia/Tokyo"),
+                    InlineKeyboardButton("🇨🇳 Asia/Shanghai", callback_data="tz_pick:Asia/Shanghai"),
+                ],
+                [
+                    InlineKeyboardButton("🇺🇸 America/New_York", callback_data="tz_pick:America/New_York"),
+                    InlineKeyboardButton("🇺🇸 America/Los_Angeles", callback_data="tz_pick:America/Los_Angeles"),
+                ],
+                [
+                    InlineKeyboardButton("🇬🇧 Europe/London", callback_data="tz_pick:Europe/London"),
+                    InlineKeyboardButton("🇩🇪 Europe/Berlin", callback_data="tz_pick:Europe/Berlin"),
+                ],
+                [
+                    InlineKeyboardButton("🇦🇺 Australia/Sydney", callback_data="tz_pick:Australia/Sydney"),
+                    InlineKeyboardButton("🌍 UTC", callback_data="tz_pick:UTC"),
+                ],
+                [
+                    InlineKeyboardButton("⌨️ Other (type /timezone <zone>)", callback_data="tz_pick:__prompt"),
+                ],
+            ]
             await update.message.reply_text(
-                "No timezone set. Tap your TZ on this list and try:\n"
-                "/tz Asia/Hong_Kong\n"
-                "/tz America/New_York\n"
-                "/tz Europe/London\n"
-                "/tz Australia/Sydney\n"
-                "/tz UTC"
+                "🕐 **Set your timezone** so reminders fire in your local time.\n\n"
+                "Tap yours, or type `/timezone <zone>` for any IANA timezone.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
             )
         return
 
@@ -2415,6 +2488,7 @@ def main():
     app.add_handler(CallbackQueryHandler(contact_view_callback, pattern="^contact_view:"))
     app.add_handler(CallbackQueryHandler(contact_note_callback, pattern="^contact_note:"))
     app.add_handler(CallbackQueryHandler(contact_remind_callback, pattern="^contact_remind:"))
+    app.add_handler(CallbackQueryHandler(tz_pick_callback, pattern="^tz_pick:"))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
