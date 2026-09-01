@@ -59,7 +59,10 @@ async def _enrich_after_save(
         domain: Optional[str] = await loop.run_in_executor(
             None, lambda: extract_domain(website=website, email=email, company=company)
         )
+        log.info("_enrich_after_save: contact=%s company=%s → domain=%s",
+                 contact_id, company, domain)
         if not domain:
+            log.info("_enrich_after_save: no usable domain for contact %s, skipping", contact_id)
             return  # no usable domain → can't enrich
 
         # 2. Run enrichment pipeline (Sonar + M3)
@@ -672,6 +675,10 @@ async def _handle_save_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         log_usage(user_id, "save_complete", f"contact_id={contact_id}")
         log_event(user_id, "contact_saved", contact_id=contact_id, source="manual")
+
+        # Capture fields BEFORE clearing state — needed for AI enrichment hook
+        saved_company = context.user_data.get("new_contact_company")
+
         # Clear state
         for k in ["save_step", "new_contact_name", "new_contact_handle",
                   "new_contact_company", "new_contact_title"]:
@@ -682,7 +689,7 @@ async def _handle_save_message(update: Update, context: ContextTypes.DEFAULT_TYP
             contact_id=contact_id,
             user_id=user_id,
             chat_id=update.effective_chat.id,
-            company=context.user_data.get("new_contact_company"),
+            company=saved_company,
             email=None,  # /save wizard doesn't collect email
             website=None,
             bot=context.bot,
