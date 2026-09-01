@@ -794,18 +794,50 @@ async def _add_note(update, context, target: str, note_text: str) -> None:
             await update.message.reply_text(f"No contact at index {target}. Run /list to see valid numbers.")
             return
     else:
-        # 2. Name match
+        # 2. Name match — progressive longest-prefix resolution.
+        # Start with the user's split target ("Wei"), find matches.
+        # Then try extending with successive words from note_text until
+        # the match set shrinks to a single contact. The longest match
+        # that still has results becomes the contact; remainder is the note.
+        # Example: "/note Wei Zhang Test 4 wants an ai agent"
+        #   iter 1: target="Wei"         → matches both Test 4 + Test 5
+        #   iter 2: target="Wei Zhang"   → matches both
+        #   iter 3: target="Wei Zhang Test" → matches both
+        #   iter 4: target="Wei Zhang Test 4" → matches Test 4 only → use it
+        #   remainder = "wants an ai agent"
+        words = note_text.split()
+        target_words = [target]
+        note_words = words  # words available to add to target
+        matches = []
+
+        # First try the user's literal split — single-word target
         matches = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: find_contacts_by_name(user_id, target)
+            None, lambda: find_contacts_by_name(user_id, " ".join(target_words))
         )
+        # Then expand until we get an EXACT (single) match
+        while len(matches) != 1 and note_words:
+            # Pull next word from note_words into the target
+            target_words.append(note_words.pop(0))
+            matches = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: find_contacts_by_name(user_id, " ".join(target_words))
+            )
+
+        target = " ".join(target_words)
+        note_text = " ".join(note_words)
+
         if not matches:
             await update.message.reply_text(
-                f"No contact named \"{target}\". Try /list or /find <name>."
+                f'"{target}" didn\'t match any contact. Try /list or /find <name>.'
             )
             return
         if len(matches) == 1:
             contact = matches[0]
         else:
+            # Still ambiguous after expanding as much as possible.
+            # Show disambiguation. The user can pick one and we save
+            # whatever note_text remains (could be empty if we pulled
+            # everything into target).
+            # Disambiguation — show inline buttons, one per matching contact.
             # Disambiguation — show inline buttons, one per matching contact.
             # User taps a button → callback handler fires with contact_id encoded.
             # We stash the note_text in context.user_data so the callback can apply it.
