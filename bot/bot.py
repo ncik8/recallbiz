@@ -3,7 +3,9 @@ import os
 import re
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
@@ -1988,6 +1990,206 @@ async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text("\n".join(lines))
 
 
+async def tz_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/tz [zone] — view or set your timezone for reminders.
+
+    Examples:
+      /tz                              → show current
+      /tz Asia/Hong_Kong              → set to HKT
+      /tz America/New_York            → set to EST
+      /tz Europe/London               → set to GMT
+    """
+    from db import get_client as _gc
+    user_id = await _resolve_user_id(update, context)
+    args = context.args or []
+
+    if not args:
+        # Show current
+        def _get():
+            client = _gc()
+            res = client.table("users").select("timezone").eq("id", user_id).maybe_single().execute()
+            return (res.data or {}).get("timezone")
+        current = await asyncio.get_event_loop().run_in_executor(None, _get)
+        if current:
+            now_in_tz = datetime.now(ZoneInfo(current)).strftime("%Y-%m-%d %H:%M:%S %Z")
+            await update.message.reply_text(
+                f"Your timezone: **{current}**\nCurrent time there: {now_in_tz}"
+            )
+        else:
+            await update.message.reply_text(
+                "No timezone set. Tap your TZ on this list and try:\n"
+                "/tz Asia/Hong_Kong\n"
+                "/tz America/New_York\n"
+                "/tz Europe/London\n"
+                "/tz Australia/Sydney\n"
+                "/tz UTC"
+            )
+        return
+
+    # Set new timezone
+    tz_name = args[0]
+    try:
+        ZoneInfo(tz_name)  # validate
+    except Exception:
+        await update.message.reply_text(
+            f'Invalid timezone: "{tz_name}".\n\n'
+            "Try one of:\n"
+            "  Asia/Hong_Kong\n  America/New_York\n  Europe/London\n  Australia/Sydney\n  UTC"
+        )
+        return
+    def _set():
+        client = _gc()
+        return client.table("users").update({"timezone": tz_name}).eq("id", user_id).execute()
+    result = await asyncio.get_event_loop().run_in_executor(None, _set)
+    if result.data:
+        now_in_tz = datetime.now(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
+        await update.message.reply_text(
+            f"✓ Timezone set to **{tz_name}**\nCurrent time there: {now_in_tz}"
+        )
+        log_usage(user_id, "tz_set", tz_name)
+    else:
+        await update.message.reply_text("Couldn't save timezone. Try again?")
+
+
+async def remind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/remind <natural language> — AI-parsed reminder.
+
+    Examples:
+      /remind tomorrow at 10am call Vitalik
+      /remind next Tuesday morning follow up with Alex about the deck
+      /remind in 5 minutes ping me to call Mike
+      /remind every monday at 9am check in with investors
+      /remind 2026-09-15 14:00 send TOKEN2049 pitch deck
+    """
+    from db import get_client as _gc
+    from services.reminder_parser import parse_reminder
+
+    if await _require_signup(update, context, action="set a reminder"):
+        return
+
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /remind <what> <when>\n\n"
+            "Examples:\n"
+            "/remind tomorrow at 10am call Vitalik\n"
+            "/remind in 2 hours check on the oven\n"
+            "/remind every monday at 9am weekly investor update\n"
+            "/remind next Tuesday morning follow up with Alex\n"
+            "\nFirst time? Set your timezone:\n"
+            "/tz Asia/Hong_Kong"
+        )
+        return
+
+    user_id = await _resolve_user_id(update, context)
+    user_input = " ".join(args)
+
+    # Get user's timezone
+    def _get_tz():
+        client = _gc()
+        res = client.table("users").select("timezone").eq("id", user_id).maybe_single().execute()
+        return (res.data or {}).get("timezone")
+    user_tz = await asyncio.get_event_loop().run_in_executor(None, _get_tz) or "Asia/Hong_Kong"
+
+    # Show "thinking" while parsing
+    processing = await update.message.reply_text("🤔 Setting reminder...")
+
+    # Parse via M3
+    parsed = await parse_reminder(user_input, tz_name=user_tz)
+    if parsed.get("error"):
+        await processing.edit_text(
+            f"Sorry, I couldn't parse that.\n\n{parsed['error']}\n\n"
+            "Try: /remind tomorrow at 10am call Mike"
+        )
+        return
+
+    # Auto-link to contact if message references a name
+    contact_id = None
+    contact_name = None
+    # Try to extract a contact reference from the message
+    msg_words = parsed["message"].split()
+    for candidate in msg_words:
+        # Words of 3+ chars that look like a name (capitalize first letter)
+        if len(candidate) >= 3 and candidate[0].isupper():
+            # Try to find a contact with this name fragment
+            from db import find_contacts_by_name
+            matches = await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=candidate: find_contacts_by_name(user_id, c)
+            )
+            if len(matches) == 1:
+                contact_id = matches[0]["id"]
+                contact_name = matches[0]["name"]
+                break
+            # If multiple matches, skip — don't auto-pick
+
+    # Persist
+    def _persist():
+        from db import set_reminder
+        return set_reminder(
+            user_id=user_id,
+            message=parsed["message"],
+            due_at_iso=parsed["due_at_iso"],
+            timezone=user_tz,
+            contact_id=contact_id,
+            recurrence=parsed.get("recurrence", "none"),
+            recurrence_end=parsed.get("recurrence_end"),
+        )
+    reminder_id = await asyncio.get_event_loop().run_in_executor(None, _persist)
+
+    if not reminder_id:
+        await processing.edit_text("Saved the parse but failed to write to DB. Try again?")
+        return
+
+    log_usage(user_id, "remind_set", f"contact_id={contact_id or 'none'}")
+
+    # Confirmation message
+    recur_msg = ""
+    if parsed.get("recurrence") and parsed["recurrence"] != "none":
+        recur_msg = f"\n🔁 Repeats: {parsed['recurrence']}"
+        if parsed.get("recurrence_end"):
+            recur_msg += f" until {parsed['recurrence_end']}"
+
+    contact_msg = f"\n📇 Linked to {contact_name}" if contact_name else ""
+
+    await processing.edit_text(
+        f"✓ Reminder set.\n\n"
+        f"📅 {parsed['due_at_human']}\n"
+        f"💬 {parsed['message']}"
+        f"{contact_msg}{recur_msg}\n\n"
+        f"/reminders to see all · /remindcancel {reminder_id[:8]} to cancel"
+    )
+
+
+async def remindcancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/remindcancel <id_prefix> — cancel a pending reminder by its ID prefix."""
+    from db import cancel_reminder
+    user_id = await _resolve_user_id(update, context)
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: /remindcancel <id>\n\n"
+            "Find the ID via /reminders (full UUID shown in old output) or via the web dashboard."
+        )
+        return
+    prefix = args[0]
+    # List user's pending reminders, find the one whose ID starts with prefix
+    from db import list_reminders
+    pending = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: list_reminders(user_id, status="pending", limit=50)
+    )
+    match = next((r for r in pending if r["id"].startswith(prefix)), None)
+    if not match:
+        await update.message.reply_text(f"No pending reminder matching '{prefix}'.")
+        return
+    ok = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: cancel_reminder(match["id"], user_id)
+    )
+    if ok:
+        await update.message.reply_text(f"✓ Cancelled reminder: {match['message'][:60]}")
+    else:
+        await update.message.reply_text("Couldn't cancel. Try again?")
+
+
 def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     init_db()
@@ -2005,6 +2207,9 @@ def main():
     app.add_handler(CommandHandler("trip", trip_cmd))
     app.add_handler(CommandHandler("send", send_cmd))
     app.add_handler(CommandHandler("reminders", reminders_cmd))
+    app.add_handler(CommandHandler("tz", tz_cmd))
+    app.add_handler(CommandHandler("remind", remind_cmd))
+    app.add_handler(CommandHandler("remindcancel", remindcancel_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
     app.add_handler(CommandHandler("skip", skip_cmd))
     app.add_handler(CommandHandler("signup", signup_cmd))
