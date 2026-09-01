@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 import httpx
 
 # Reuse existing helpers — bot already wires M3 + Perplexity Sonar
-from ai import call_minimax, call_sonar
+from ai import call_minimax, call_sonar, MINIMAX_API_KEY, MINIMAX_MODEL, MINIMAX_BASE_URL
 
 log = logging.getLogger(__name__)
 
@@ -139,18 +139,42 @@ async def _search_snippets(domain: str) -> list[dict]:
 
 
 async def _summarize(domain: str, snippets_text: str) -> Optional[str]:
-    """M3 turns Sonar's answer into a clean 3-sentence summary."""
+    """M3 turns Sonar's answer into a clean 3-sentence summary.
+
+    Calls M3 directly (not via call_minimax) so we can disable thinking,
+    which is mandatory for short generation tasks per the minimax-endpoints
+    skill — without it, M3 includes the thinking block in the user-visible
+    content, leaking the model's reasoning.
+    """
     if not snippets_text.strip():
+        return None
+    if not MINIMAX_API_KEY:
+        log.warning("_summarize: MINIMAX_API_KEY not set, skipping")
         return None
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Company domain: {domain}\n\nSearch result:\n{snippets_text[:3000]}\n\nWrite the 3-sentence summary:"},
     ]
+    payload = {
+        "model": MINIMAX_MODEL,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 400,
+        "thinking": {"type": "disabled"},  # critical: avoid thinking leaks
+    }
     try:
-        resp = await call_minimax(messages, temperature=0.3)
-        content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-        # Strip markdown emphasis that M3 often adds
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{MINIMAX_BASE_URL.rstrip('/')}/chat/completions",
+                headers={"Authorization": f"Bearer {MINIMAX_API_KEY}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            r.raise_for_status()
+            data = r.json()
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         content = content.strip().strip("`*_")
+        # Defensive: strip any leaked <think>...</think> blocks
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
         return content or None
     except Exception as e:
         log.warning("enrichment._summarize failed for %s: %s", domain, e)
