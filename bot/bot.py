@@ -935,16 +935,61 @@ async def contact_view_callback(update, context) -> None:
         lines.append("**AI enrichment:**")
         lines.append(contact["ai_description"][:400])
 
-    # Add "Add note" button below
+    # Add "Add note" and "Add reminder" buttons below
     keyboard = [[
         InlineKeyboardButton(
             "➕ Add note",
             callback_data=f"contact_note:{contact_id}"
-        )
+        ),
+        InlineKeyboardButton(
+            "🔔 Add reminder",
+            callback_data=f"contact_remind:{contact_id}"
+        ),
     ]]
     await query.edit_message_text(
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def contact_remind_callback(update, context) -> None:
+    """Tap 'Add reminder' on a contact card → prompt user for reminder text.
+
+    Sets pending_reminder_for in context.user_data so the next text message
+    from the user gets parsed via /remind's parser and linked to this contact.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    contact_id = query.data.split(":", 1)[1] if ":" in query.data else ""
+    if not contact_id:
+        return
+    # Look up the name so we can show "adding reminder for X"
+    from db import get_client as _gc
+    def _fetch():
+        client = _gc()
+        res = (
+            client.table("contacts")
+            .select("name")
+            .eq("id", contact_id)
+            .maybe_single()
+            .execute()
+        )
+        return res.data
+    contact = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    name = (contact or {}).get("name", "this contact")
+    context.user_data["pending_reminder_for"] = {
+        "contact_id": contact_id,
+        "name": name,
+    }
+    await query.edit_message_text(
+        f"Setting a reminder linked to **{name}**.\n\n"
+        f"Type when you want to be reminded (natural language):\n\n"
+        f"• 'tomorrow at 10am follow up with them'\n"
+        f"• 'next Tuesday morning ping about the deck'\n"
+        f"• 'in 30 minutes check on the meeting'\n"
+        f"• 'every monday at 9am weekly check-in'\n\n"
+        f"Or /cancel to skip."
     )
 
 
@@ -1262,6 +1307,9 @@ async def echo_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.user_data.get("pending_note_for"):
         await _save_note(update, context)
+        return
+    if context.user_data.get("pending_reminder_for"):
+        await _save_reminder_for_contact(update, context)
         return
     if context.user_data.get("pending_card"):
         await _confirm_ocr_save(update, context)
@@ -1618,6 +1666,85 @@ async def _confirm_ocr_save(update, context):
         "  Company is gebecert, email is nick@gebecert.com"
     )
     return True
+
+
+async def _save_reminder_for_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save a reminder linked to a contact (entered via 'Add reminder' button).
+
+    Reuses the same M3 parser as /remind, plus auto-links the resulting
+    reminder to the contact whose 'Add reminder' button was tapped.
+    """
+    from db import get_client as _gc
+    from services.reminder_parser import parse_reminder
+    from db import set_reminder
+
+    pending = context.user_data.get("pending_reminder_for")
+    if not pending:
+        return
+    contact_id = pending["contact_id"]
+    contact_name = pending["name"]
+    text = update.message.text.strip()
+
+    # Skip
+    if text.lower() in ("skip", "no", "n", "cancel", "done"):
+        context.user_data.pop("pending_reminder_for", None)
+        await update.message.reply_text(
+            f"OK, no reminder set.\n\nUse /list to see {contact_name}."
+        )
+        return
+
+    user_id = await _resolve_user_id(update, context)
+    # Get user timezone
+    def _get_tz():
+        client = _gc()
+        res = client.table("users").select("timezone").eq("id", user_id).maybe_single().execute()
+        return (res.data or {}).get("timezone")
+    user_tz = await asyncio.get_event_loop().run_in_executor(None, _get_tz) or "Asia/Hong_Kong"
+
+    # Parse via M3
+    processing = await update.message.reply_text("🤔 Setting reminder...")
+    parsed = await parse_reminder(text, tz_name=user_tz)
+    if parsed.get("error"):
+        await processing.edit_text(
+            f"Sorry, I couldn't parse that.\n\n{parsed['error']}\n\n"
+            "Try: /remind tomorrow at 10am follow up with them"
+        )
+        context.user_data.pop("pending_reminder_for", None)
+        return
+
+    # Persist — linked to the contact
+    reminder_id = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: set_reminder(
+            user_id=user_id,
+            message=parsed["message"],
+            due_at_iso=parsed["due_at_iso"],
+            timezone=user_tz,
+            contact_id=contact_id,  # auto-linked
+            recurrence=parsed.get("recurrence", "none"),
+            recurrence_end=parsed.get("recurrence_end"),
+        ),
+    )
+    context.user_data.pop("pending_reminder_for", None)
+    if not reminder_id:
+        await processing.edit_text("Saved the parse but failed to write to DB. Try again?")
+        return
+
+    log_usage(user_id, "remind_set_via_contact", f"contact_id={contact_id}")
+
+    recur_msg = ""
+    if parsed.get("recurrence") and parsed["recurrence"] != "none":
+        recur_msg = f"\n🔁 Repeats: {parsed['recurrence']}"
+        if parsed.get("recurrence_end"):
+            recur_msg += f" until {parsed['recurrence_end']}"
+
+    await processing.edit_text(
+        f"✓ Reminder set for **{contact_name}**.\n\n"
+        f"📅 {parsed['due_at_human']}\n"
+        f"💬 {parsed['message']}"
+        f"{recur_msg}\n\n"
+        f"/reminders to see all · /remindcancel {reminder_id[:8]} to cancel"
+    )
 
 
 async def _save_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2225,6 +2352,7 @@ def main():
     app.add_handler(CallbackQueryHandler(note_pick_callback, pattern="^note_pick:"))
     app.add_handler(CallbackQueryHandler(contact_view_callback, pattern="^contact_view:"))
     app.add_handler(CallbackQueryHandler(contact_note_callback, pattern="^contact_note:"))
+    app.add_handler(CallbackQueryHandler(contact_remind_callback, pattern="^contact_remind:"))
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
