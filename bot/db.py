@@ -149,6 +149,70 @@ def save_contact(
     return contact_id
 
 
+def write_enrichment(
+    contact_id: str,
+    summary: str,
+    sources: list,
+) -> bool:
+    """Write AI enrichment fields to a contact. Returns True on success.
+
+    Used by services/enrichment.py after the search+summarize pipeline runs.
+    Never raises — enrichment failures must not break the bot.
+    """
+    client = get_client()
+    try:
+        res = (
+            client.table("contacts")
+            .update({
+                "ai_description": summary,
+                "ai_description_sources": sources,
+                "ai_description_updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            .eq("id", contact_id)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception as e:
+        log.warning("write_enrichment failed for %s: %s", contact_id, e)
+        return False
+
+
+def find_duplicates_by_company(
+    user_id: str,
+    company: str,
+    exclude_contact_id: Optional[str] = None,
+    limit: int = 5,
+) -> list:
+    """Find other contacts the user has at the same company.
+
+    Used to suggest warm intros: "You also have Mei Lin (Head of Partnerships)
+    at Acme Robotics, saved June 23."
+
+    Uses ILIKE for case-insensitive matching. Excludes the contact that
+    triggered this lookup (the one we just saved). Ordered by saved_at DESC
+    so the most recent contacts surface first.
+    """
+    if not company or not company.strip():
+        return []
+    client = get_client()
+    try:
+        q = (
+            client.table("contacts")
+            .select("id, name, title, saved_at")
+            .eq("user_id", user_id)
+            .ilike("company", company.strip())
+            .order("saved_at", desc=True)
+            .limit(limit)
+        )
+        if exclude_contact_id:
+            q = q.neq("id", exclude_contact_id)
+        res = q.execute()
+        return res.data or []
+    except Exception as e:
+        log.warning("find_duplicates_by_company failed: %s", e)
+        return []
+
+
 def search_contacts(user_id: str, query: str, limit: int = 10) -> list:
     """Full-text search using search_vector (Postgres tsvector + GIN index).
 

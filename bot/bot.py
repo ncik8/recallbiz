@@ -19,13 +19,89 @@ from db import (
     init_db, log_usage, save_contact, search_contacts, list_recent,
     set_active_trip, get_active_trip, deactivate_trip, count_trip_contacts,
     get_or_create_user, get_filtered_contacts, update_contact_notes,
-    update_contact_field, find_contacts_by_name,
+    update_contact_field, find_contacts_by_name, write_enrichment,
+    find_duplicates_by_company,
 )
 from ocr import try_decode_qr, parse_telegram_qr
 from ai import interpret_card_edit
 from ai import extract_card_from_image, handle_conversation
 from services import stripe_billing
 from services.events import log_event
+from services.enrichment import enrich_domain, extract_domain
+
+
+async def _enrich_after_save(
+    contact_id: str,
+    user_id: str,
+    chat_id: int,
+    company: Optional[str] = None,
+    website: Optional[str] = None,
+    email: Optional[str] = None,
+    bot=None,
+) -> None:
+    """Fire AI enrichment + duplicate check after a contact is saved.
+
+    Runs entirely async (doesn't block the save reply). Sends a follow-up
+    Telegram message with the company description and any duplicate-company
+    contacts as warm intro suggestions. Silent on failure.
+
+    Args:
+        contact_id: the just-saved contact's UUID
+        user_id: the user_id (UUID, not telegram_user_id)
+        chat_id: Telegram chat to send the follow-up to
+        company, website, email: from the saved contact — used to derive domain
+        bot: Telegram bot instance (for sending messages). If None, no message sent.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+
+        # 1. Extract domain
+        domain: Optional[str] = await loop.run_in_executor(
+            None, lambda: extract_domain(website=website, email=email, company=company)
+        )
+        if not domain:
+            return  # no usable domain → can't enrich
+
+        # 2. Run enrichment pipeline (Sonar + M3)
+        result = await enrich_domain(domain)
+        if not result:
+            return  # search or summarize returned nothing
+
+        # 3. Persist to DB
+        await loop.run_in_executor(
+            None, lambda: write_enrichment(contact_id, result["summary"], result["sources"])
+        )
+
+        # 4. Find duplicate-company contacts
+        duplicates = []
+        if company:
+            duplicates = await loop.run_in_executor(
+                None, lambda: find_duplicates_by_company(user_id, company, exclude_contact_id=contact_id)
+            )
+
+        # 5. Send Telegram message
+        if bot is None:
+            return
+
+        lines = [f"🔍 Here's what I found about {company or domain}:"]
+        lines.append("")
+        lines.append(result["summary"][:600])
+        if duplicates:
+            lines.append("")
+            lines.append(f"💡 You also have {len(duplicates)} other contact(s) at {company}:")
+            for d in duplicates[:3]:
+                title = f" ({d.get('title')})" if d.get('title') else ""
+                saved = d.get('saved_at', '')[:10] if d.get('saved_at') else 'recent'
+                lines.append(f"   • {d.get('name')}{title} — saved {saved}")
+            if len(duplicates) > 3:
+                lines.append(f"   (+{len(duplicates) - 3} more)")
+            lines.append("\nWant me to draft an intro?")
+
+        msg = "\n".join(lines)
+        await bot.send_message(chat_id=chat_id, text=msg)
+
+    except Exception as e:
+        log.warning("_enrich_after_save failed for contact %s: %s", contact_id, e)
 
 
 async def _resolve_user_id(update, context) -> str:
@@ -600,6 +676,17 @@ async def _handle_save_message(update: Update, context: ContextTypes.DEFAULT_TYP
         for k in ["save_step", "new_contact_name", "new_contact_handle",
                   "new_contact_company", "new_contact_title"]:
             context.user_data.pop(k, None)
+
+        # Fire AI enrichment + duplicate check (async, non-blocking)
+        asyncio.create_task(_enrich_after_save(
+            contact_id=contact_id,
+            user_id=user_id,
+            chat_id=update.effective_chat.id,
+            company=context.user_data.get("new_contact_company"),
+            email=None,  # /save wizard doesn't collect email
+            website=None,
+            bot=context.bot,
+        ))
 
         trip = await asyncio.get_event_loop().run_in_executor(
             None, lambda: get_active_trip(user_id)
