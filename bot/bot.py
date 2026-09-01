@@ -316,6 +316,10 @@ HELP = """Commands:
   /trip on/off — Toggle trip mode without changing the trip
   /trip — Show current trip + count
   /send <filter> <message> — Generate t.me links to message a filtered group
+  /remind <when> <what> — Set a reminder in natural language (e.g. "tomorrow at 10am call Vitalik")
+  /reminders — List your pending reminders
+  /remindcancel <id> — Cancel a pending reminder by ID prefix
+  /timezone [zone] — View or set your timezone (aliases: /tz). Examples: /timezone America/New_York
   /ask <question> — Web search (Pro Plus). Ask "what's the latest on Vitalik's company?"
   /upgrade — Go Pro ($9.99/mo or $99/yr). Pay here in chat via Stripe.
   /upgrade_pro_plus — Go Pro Plus ($19.99/mo) to unlock /ask web search.
@@ -325,6 +329,8 @@ HELP = """Commands:
 
 Tip: Forward any Telegram QR image to me and I'll save the contact automatically.
 You can also share a Telegram contact card and I'll grab the name + phone.
+
+First time setting a reminder? Run /timezone Asia/Hong_Kong (or any IANA zone) so reminders show in your local time.
 
 Web dashboard: trce.io/dashboard — log in with the email + password from /setpassword.
 Edit contacts, download CSV. The bot is still your primary surface.
@@ -2146,14 +2152,40 @@ async def reminders_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text("\n".join(lines))
 
 
-async def tz_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/tz [zone] — view or set your timezone for reminders.
+async def _get_or_ask_user_tz(update, context, user_id: str) -> tuple[Optional[str], bool]:
+    """Resolve user's timezone for reminders. Returns (tz_name, needs_ask).
+
+    - If users.timezone is set + valid IANA → returns it, needs_ask=False.
+    - If unset OR invalid → returns (None, True), caller should prompt.
+    - Caller is responsible for asking the user (in /remind flow only)
+      and persisting via .table('users').update({'timezone': x}).
+    """
+    from db import get_client as _gc
+
+    def _get_user_tz():
+        client = _gc()
+        res = client.table("users").select("timezone").eq("id", user_id).maybe_single().execute()
+        return (res.data or {}).get("timezone")
+
+    stored = await asyncio.get_event_loop().run_in_executor(None, _get_user_tz)
+    if stored:
+        try:
+            ZoneInfo(stored)
+            return (stored, False)
+        except Exception:
+            pass  # invalid IANA stored → ask user again
+    return (None, True)
+
+
+async def timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/timezone [zone] — view or set your timezone for reminders.
+
+    Aliases: /tz (for fast typing)
 
     Examples:
-      /tz                              → show current
-      /tz Asia/Hong_Kong              → set to HKT
-      /tz America/New_York            → set to EST
-      /tz Europe/London               → set to GMT
+      /timezone                          → show current
+      /timezone America/New_York         → set to EST
+      /tz Europe/London                  → same (alias)
     """
     from db import get_client as _gc
     user_id = await _resolve_user_id(update, context)
@@ -2363,7 +2395,8 @@ def main():
     app.add_handler(CommandHandler("trip", trip_cmd))
     app.add_handler(CommandHandler("send", send_cmd))
     app.add_handler(CommandHandler("reminders", reminders_cmd))
-    app.add_handler(CommandHandler("tz", tz_cmd))
+    app.add_handler(CommandHandler("timezone", timezone_cmd))
+    app.add_handler(CommandHandler("tz", timezone_cmd))  # alias
     app.add_handler(CommandHandler("remind", remind_cmd))
     app.add_handler(CommandHandler("remindcancel", remindcancel_cmd))
     app.add_handler(CommandHandler("cancel", cancel_save))
